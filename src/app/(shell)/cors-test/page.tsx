@@ -6,9 +6,8 @@ export default function CorsTestPage() {
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold">CORS Test</h1>
         <p className="text-muted-foreground text-sm">
-          这个页面会在
-          <strong>浏览器端</strong>
-          直接向 LLM API 发起跨域请求，用来验证是否存在 CORS 限制。
+          This page makes a browser-side request to your LLM API endpoint to
+          validate whether CORS restrictions are in place.
         </p>
       </header>
       <CorsTestClient />

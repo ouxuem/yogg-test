@@ -1,17 +1,36 @@
 'use client'
 
 import { RiFileTextLine, RiPaletteLine } from '@remixicon/react'
+import { useRouter } from 'next/navigation'
+import { useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 
 const creativeTextureSrc = '/assets/creative-space-texture.png'
+const INPUT_STORAGE_KEY = 'sdicap:v2:input'
 
 export function ComponentExample() {
+  const [input, setInput] = useState('')
+  const canAnalyze = useMemo(() => input.trim().length > 0, [input])
+  const router = useRouter()
+
+  const onAnalyze = () => {
+    if (!canAnalyze)
+      return
+    window.sessionStorage.setItem(INPUT_STORAGE_KEY, input)
+    router.push('/analyze')
+  }
+
   return (
     <section className="relative z-10 mx-auto w-full max-w-5xl overflow-hidden px-4 py-6 sm:px-6 lg:px-12">
       <div className="w-full max-w-[960px] space-y-4">
         <HeroHeading />
-        <IdeaComposerCard />
+        <IdeaComposerCard
+          value={input}
+          onChange={setInput}
+          canAnalyze={canAnalyze}
+          onAnalyze={onAnalyze}
+        />
       </div>
     </section>
   )
@@ -28,7 +47,17 @@ function HeroHeading() {
   )
 }
 
-function IdeaComposerCard() {
+function IdeaComposerCard({
+  value,
+  onChange,
+  canAnalyze,
+  onAnalyze,
+}: {
+  value: string
+  onChange: (nextValue: string) => void
+  canAnalyze: boolean
+  onAnalyze: () => void
+}) {
   return (
     <div className="relative w-full max-w-[816px]">
       <div className="absolute inset-x-[11px] -bottom-[15px] top-[8px] rotate-[-0.5deg] rounded-[32px] border border-[#e2e6e0] bg-[#f2f3f0] shadow-[2px_2px_4px_rgba(0,0,0,0.05)]" />
@@ -39,6 +68,9 @@ function IdeaComposerCard() {
             <div className="h-[min(52svh,560px)] grid grid-rows-[1fr_52px] gap-2">
               <div className="hero-scroll-window overflow-hidden">
                 <Textarea
+                  data-testid="analysis-input"
+                  value={value}
+                  onChange={event => onChange(event.target.value)}
                   placeholder="Start with the simplest idea..."
                   className="hero-scroll !min-h-0 h-full [field-sizing:fixed] resize-none overflow-y-auto border-0 bg-transparent font-mono text-[30px] leading-[20.63px] text-foreground shadow-none ring-0 placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:text-[15px]"
                 />
@@ -66,15 +98,17 @@ function IdeaComposerCard() {
                   type="button"
                   size="lg"
                   className="relative h-10 overflow-hidden rounded-full px-3 text-sm leading-[22.5px] font-semibold text-white shadow-[0_0.5px_1px_rgba(0,0,0,0.08)] sm:px-4 sm:text-[15px]"
-                  aria-label="New Creative Space"
+                  data-testid="analysis-submit"
+                  aria-label="New Project"
+                  disabled={!canAnalyze}
+                  onClick={onAnalyze}
                 >
                   <span className="absolute inset-0 bg-gradient-to-r from-[#526c4b] to-[#74896e]" />
                   <span
                     className="absolute inset-0 opacity-35 mix-blend-screen"
                     style={{ backgroundImage: `url(${creativeTextureSrc})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
                   />
-                  <span className="relative">New Creative Space</span>
-                  <span className="relative pl-2 text-base leading-none">↵</span>
+                  <span className="relative">New Project</span>
                 </Button>
               </div>
             </div>

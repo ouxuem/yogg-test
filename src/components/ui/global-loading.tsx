@@ -1,7 +1,13 @@
 import DotGrid from '@/components/ui/dot-grid'
 import PrismaticBurst from '@/components/ui/prismatic-burst'
 
-export default function GlobalLoading() {
+export default function GlobalLoading({
+  message = 'Loading page...',
+  testId,
+}: {
+  message?: string
+  testId?: string
+}) {
   return (
     <div className="bg-background relative min-h-screen overflow-hidden">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(120,160,135,0.14),rgba(255,255,255,0)_55%)]" />
@@ -45,8 +51,11 @@ export default function GlobalLoading() {
         />
       </div>
       <div className="relative z-10 flex min-h-screen items-center justify-center">
-        <div className="bg-card/80 border-border text-card-foreground rounded-xl border px-6 py-4 text-sm backdrop-blur">
-          Loading page...
+        <div
+          className="bg-card/80 border-border text-card-foreground rounded-xl border px-6 py-4 text-sm backdrop-blur"
+          data-testid={testId}
+        >
+          {message}
         </div>
       </div>
     </div>
