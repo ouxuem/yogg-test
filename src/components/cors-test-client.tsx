@@ -1,16 +1,18 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
+import { generateText, Output } from 'ai'
+import { useState } from 'react'
+import { z } from 'zod'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 
-const ENDPOINT = 'https://llm-api.dev.zenai.cc/v1/chat/completions'
-
-const SYSTEM_PROMPT = [
-  'You are a strict JSON-only assistant.',
-  'Return a single JSON object with keys: ok (boolean), note (string).',
-].join('\n')
+// 使用 Zod 定义结构化输出的 schema
+const responseSchema = z.object({
+  ok: z.boolean().describe('Whether the request was successful'),
+  note: z.string().describe('A note or message about the response'),
+})
 
 type AuthMode = 'none' | 'dummy' | 'key'
 
@@ -18,10 +20,7 @@ interface TestResult {
   at: string
   mode: AuthMode
   durationMs: number
-  status?: number
-  statusText?: string
-  contentType?: string | null
-  bodyPreview?: string
+  response?: z.infer<typeof responseSchema>
   error?: string
 }
 
@@ -29,70 +28,55 @@ function nowIso() {
   return new Date().toISOString()
 }
 
-function truncate(text: string, max = 1200) {
-  if (text.length <= max)
-    return text
-  return `${text.slice(0, max)}…`
-}
-
-function buildHeaders(mode: AuthMode, apiKey: string) {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
-
+function getApiKey(mode: AuthMode, apiKey: string): string {
+  if (mode === 'none')
+    return ''
   if (mode === 'dummy')
-    headers.Authorization = 'Bearer test'
-
-  if (mode === 'key') {
-    const trimmed = apiKey.trim()
-    if (trimmed)
-      headers.Authorization = `Bearer ${trimmed}`
-  }
-
-  return headers
+    return 'test'
+  return apiKey.trim()
 }
 
-export default function CorsTestClient() {
+export default function CorsTestClient({ endpoint }: { endpoint: string }) {
   const [apiKey, setApiKey] = useState('')
   const [input, setInput] = useState('Hello! Please respond with JSON only.')
   const [result, setResult] = useState<TestResult | null>(null)
   const [isRunning, setIsRunning] = useState(false)
-
-  const payload = useMemo(() => {
-    const userText = input.trim().slice(0, 500)
-    return {
-      model: 'gemini-3-flash',
-      temperature: 0.5,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userText || 'Hello' },
-      ],
-    }
-  }, [input])
 
   async function run(mode: AuthMode) {
     setIsRunning(true)
     const startedAt = performance.now()
 
     try {
-      const response = await fetch(ENDPOINT, {
-        method: 'POST',
-        headers: buildHeaders(mode, apiKey),
-        body: JSON.stringify(payload),
+      const key = getApiKey(mode, apiKey)
+
+      const provider = createOpenAICompatible({
+        name: 'zenai',
+        baseURL: endpoint,
+        apiKey: key || 'placeholder', // AI SDK requires a non-empty apiKey
+        supportsStructuredOutputs: true, // 启用结构化输出支持
+      })
+
+      const userText = input.trim().slice(0, 500) || 'Hello'
+
+      const { output } = await generateText({
+        model: provider.chatModel('gemini-3-flash'),
+        output: Output.object({ schema: responseSchema }),
+        prompt: userText,
+        temperature: 0.5,
+        providerOptions: {
+          zenai: {
+            reasoningEffort: 'high',
+          },
+        },
       })
 
       const durationMs = Math.round(performance.now() - startedAt)
-      const contentType = response.headers.get('content-type')
-      const bodyText = await response.text().catch(() => '')
 
       setResult({
         at: nowIso(),
         mode,
         durationMs,
-        status: response.status,
-        statusText: response.statusText,
-        contentType,
-        bodyPreview: truncate(bodyText),
+        response: output ?? undefined,
       })
     }
     catch (error) {
@@ -115,7 +99,7 @@ export default function CorsTestClient() {
     <section className="space-y-4">
       <div className="space-y-2">
         <div className="text-sm font-medium">Endpoint</div>
-        <div className="text-muted-foreground break-all text-sm">{ENDPOINT}</div>
+        <div className="text-muted-foreground break-all text-sm">{endpoint}</div>
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">

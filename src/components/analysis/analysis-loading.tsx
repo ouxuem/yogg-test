@@ -1,9 +1,10 @@
 'use client'
 
+import type { AnalysisProgress } from '@/lib/analysis/analysis-progress'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Progress, ProgressLabel } from '@/components/ui/progress'
 
-type PhaseKey = 'ingest' | 'entities' | 'semantic' | 'scoring' | 'finalize'
+type PhaseKey = AnalysisProgress['phase']
 
 const PHASES: Array<{
   key: PhaseKey
@@ -12,62 +13,58 @@ const PHASES: Array<{
   weight: number
 }> = [
   {
-    key: 'ingest',
-    title: 'Ingestion & structuring',
-    subtitle: 'Reading episodes and standardizing the input format.',
+    key: 'validate_index',
+    title: 'Validate & index',
+    subtitle: 'Checking format, completeness, and episode order.',
     weight: 0.18,
   },
   {
-    key: 'entities',
-    title: 'Entity freeze',
-    subtitle: 'Locking characters, relationships, and repeated motifs.',
-    weight: 0.14,
+    key: 'structure_story',
+    title: 'Structure the story',
+    subtitle: 'Building consistent story windows for fair comparison.',
+    weight: 0.2,
   },
   {
-    key: 'semantic',
-    title: 'Deep semantic analysis (L2)',
-    subtitle: 'Evaluating hooks, conflict signals, and narrative intent.',
-    weight: 0.42,
-  },
-  {
-    key: 'scoring',
-    title: 'Canonical aggregation (V2)',
-    subtitle: 'Applying V2 rules, weights, and corrections consistently.',
+    key: 'map_characters',
+    title: 'Map characters & relationships',
+    subtitle: 'Tracking who matters, how they connect, and what shifts.',
     weight: 0.18,
   },
   {
-    key: 'finalize',
-    title: 'Finalizing report',
-    subtitle: 'Assembling dashboard and diagnosis outputs.',
-    weight: 0.08,
+    key: 'evaluate_momentum',
+    title: 'Evaluate momentum',
+    subtitle: 'Measuring tension, conflict, pacing, and episode endings.',
+    weight: 0.34,
+  },
+  {
+    key: 'assemble_report',
+    title: 'Score & assemble report',
+    subtitle: 'Compiling score breakdowns, charts, and diagnostics.',
+    weight: 0.1,
   },
 ]
 
 const ACTIVITY_LINES = [
-  'Validating episode headers and paywall markers.',
-  'Sampling EP2 opening window (1,000 chars) for attribution.',
-  'Rebuilding hook context across episode boundaries.',
-  'Scanning for redline cultural taboos (hard veto).',
-  'Calculating “visual hammer” density across EP1–EP3.',
-  'Classifying hook types: Decision, Crisis, Information, Emotion.',
-  'Calibrating paywall window around EP6–EP7 for monetization signals.',
-  'Separating external conflict vs internal emotional tension.',
-  'Running V2 audit trail assembly for explainable scoring.',
+  'Validating episode headers and completion status.',
+  'Indexing openings and endings across episodes.',
+  'Identifying core characters and recurring threads.',
+  'Estimating emotional intensity and conflict moments.',
+  'Checking cliffhangers, reversals, and momentum shifts.',
+  'Detecting monetization checkpoints and their setup.',
+  'Running content safety and audience-fit checks.',
+  'Compiling episode-by-episode breakdown and key issues.',
+  'Finalizing charts and export-ready layout.',
 ]
 
 const VALUE_TIPS = [
-  'V2 does not just count conflict — it separates external action from internal emotional tension.',
-  'Hook scoring re-samples episode tails to avoid “cut-point bias”.',
-  'The system combines deterministic metrics (L1) with structure recognition (L2) for stability.',
-  'Monetization signals carry 50% weight — paywall placement and hook strength matter.',
+  'We look for both immediate hooks and long-range setup across episodes.',
+  'Scores come with explanations, so you can see what drove them.',
+  'We distinguish external action from internal emotional tension.',
+  'We focus on momentum — what makes a reader keep going.',
 ]
 
 function clamp01(value: number) {
   return Math.max(0, Math.min(1, value))
-}
-
-function _formatPct(value01: number) {
-  return `${Math.round(clamp01(value01) * 100)}%`
 }
 
 function phaseFromProgress(progress01: number): PhaseKey {
@@ -78,7 +75,7 @@ function phaseFromProgress(progress01: number): PhaseKey {
   }, [])
 
   const hit = cutoffs.find(c => progress01 <= c.end)
-  return hit?.key ?? 'finalize'
+  return hit?.key ?? 'assemble_report'
 }
 
 function useSimulatedProgress(enabled: boolean) {
@@ -114,11 +111,24 @@ function useSimulatedProgress(enabled: boolean) {
 
 export default function AnalysisLoading({
   testId,
+  progress,
+  mode,
 }: {
   testId?: string
+  progress?: AnalysisProgress
+  mode?: 'simulated' | 'driven'
 }) {
-  const progress01 = useSimulatedProgress(true)
-  const phaseKey = useMemo(() => phaseFromProgress(progress01), [progress01])
+  const effectiveMode = mode || (progress ? 'driven' : 'simulated')
+  const simulatedProgress01 = useSimulatedProgress(effectiveMode === 'simulated')
+  const drivenProgress01 = useMemo(() => clamp01((progress?.percent ?? 0) / 100), [progress?.percent])
+  const progress01 = effectiveMode === 'driven' ? drivenProgress01 : simulatedProgress01
+
+  const phaseKey = useMemo(() => {
+    if (effectiveMode === 'driven')
+      return progress?.phase || 'validate_index'
+    return phaseFromProgress(progress01)
+  }, [effectiveMode, progress?.phase, progress01])
+
   const activeIndex = useMemo(() => PHASES.findIndex(p => p.key === phaseKey), [phaseKey])
 
   const [activityIndex, setActivityIndex] = useState(0)
@@ -140,8 +150,9 @@ export default function AnalysisLoading({
 
   const statusText = useMemo(() => {
     const current = PHASES[Math.max(0, activeIndex)]?.title ?? 'Analyzing'
-    return `${current}…`
-  }, [activeIndex])
+    const suffix = progress?.batch ? ` (${progress.batch.current}/${progress.batch.total})` : ''
+    return `${current}…${suffix}`
+  }, [activeIndex, progress])
 
   return (
     <div
@@ -176,8 +187,8 @@ export default function AnalysisLoading({
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[1.05fr_0.95fr]">
-          <div className="rounded-2xl border border-border/70 bg-background/60 p-3">
-            <ol className="space-y-2">
+          <div className="rounded-2xl border border-border/70 bg-background/60 p-3 lg:flex lg:h-full lg:flex-col">
+            <ol className="flex flex-col gap-2 lg:grid lg:flex-1 lg:grid-rows-5 lg:gap-2">
               {PHASES.map((phase, index) => {
                 const isActive = index === activeIndex
                 const isDone = index < activeIndex
@@ -186,6 +197,7 @@ export default function AnalysisLoading({
                     key={phase.key}
                     className={[
                       'rounded-xl px-3 py-2 transition',
+                      'lg:flex lg:h-full lg:items-center',
                       isActive ? 'bg-accent/60' : 'bg-transparent',
                     ].join(' ')}
                   >
@@ -209,20 +221,24 @@ export default function AnalysisLoading({
           <div className="rounded-2xl border border-border/70 bg-background/60 p-3">
             <HeroViz />
             <div className="mt-3 rounded-xl border border-border/70 bg-card/60 p-3">
-              <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+              <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase whitespace-nowrap">
                 Activity
               </p>
-              <p className="mt-1 text-sm leading-5">
-                {ACTIVITY_LINES[activityIndex]}
-              </p>
+              <div className="mt-1 min-h-10">
+                <p className="text-sm leading-5 overflow-hidden text-ellipsis line-clamp-2 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
+                  {progress?.activity ?? ACTIVITY_LINES[activityIndex]}
+                </p>
+              </div>
             </div>
             <div className="mt-3 rounded-xl border border-border/70 bg-card/60 p-3">
-              <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+              <p className="text-muted-foreground text-xs font-medium tracking-wide uppercase whitespace-nowrap">
                 Why it’s worth the wait
               </p>
-              <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                {VALUE_TIPS[tipIndex]}
-              </p>
+              <div className="mt-1 min-h-10">
+                <p className="text-sm leading-5 text-muted-foreground overflow-hidden text-ellipsis line-clamp-2 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
+                  {VALUE_TIPS[tipIndex]}
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -273,7 +289,7 @@ function HeroViz() {
           Pipeline
         </p>
         <p className="text-muted-foreground text-xs tabular-nums">
-          L1 + L2 → V2 audit → report
+          input → signals → score → report
         </p>
       </div>
 
@@ -297,8 +313,8 @@ function HeroViz() {
       </div>
 
       <div className="mt-3 flex items-center justify-between text-xs text-muted-foreground">
-        <span>Deterministic metrics</span>
-        <span>Structure recognition</span>
+        <span>Measurable signals</span>
+        <span>Story patterns</span>
       </div>
     </div>
   )
@@ -334,26 +350,15 @@ function SignalBars() {
           <span
             // eslint-disable-next-line react/no-array-index-key
             key={i}
-            className="w-full rounded-sm bg-primary/80"
+            className="animate-analysis-bar w-full rounded-sm bg-primary/80"
             style={{
               height: `${8 + ((i * 7) % 18)}px`,
               opacity: 0.35 + ((i % 5) * 0.1),
-              animation: 'analysis-bar 1.8s ease-in-out infinite',
               animationDelay: `${i * 80}ms`,
             }}
           />
         ))}
       </div>
-
-      <style jsx>
-        {`
-        @keyframes analysis-bar {
-          0% { transform: translateY(0); }
-          50% { transform: translateY(-2px); }
-          100% { transform: translateY(0); }
-        }
-      `}
-      </style>
     </div>
   )
 }
