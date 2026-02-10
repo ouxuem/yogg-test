@@ -1,7 +1,6 @@
 import type { AnalysisProgress } from '@/lib/analysis/analysis-progress'
 import { parseAndPreflight } from '@/lib/analysis/input-contract'
 import { computeL1Stats } from '@/lib/analysis/l1-stats'
-import { buildEpisodeWindows } from '@/lib/analysis/window-builder'
 import { isRecord } from '@/lib/type-guards'
 
 interface StartMessage {
@@ -38,7 +37,6 @@ type WorkerMessage
 interface PreparedPayload {
   meta: ReturnType<typeof parseAndPreflight>['meta']
   l1: ReturnType<typeof computeL1Stats>
-  windows: ReturnType<typeof buildEpisodeWindows>
   scoreRequest: ScoreApiRequest
 }
 
@@ -87,13 +85,8 @@ async function runAnalysis(startMessage: StartMessage) {
   progress({
     phase: 'structure_story',
     percent: 22,
-    activity: 'Building consistent story windows for analysis.',
+    activity: 'Preparing structured episode payload for AI scoring.',
   })
-
-  const windows = buildEpisodeWindows(
-    result.episodes.map(ep => ({ number: ep.number, text: ep.text, paywallCount: ep.paywallCount })),
-    result.meta.tokenizer,
-  )
 
   progress({
     phase: 'structure_story',
@@ -160,7 +153,6 @@ async function runAnalysis(startMessage: StartMessage) {
     payload: {
       meta: result.meta,
       l1,
-      windows,
       scoreRequest: {
         episodes: result.episodes.map(ep => ({
           number: ep.number,

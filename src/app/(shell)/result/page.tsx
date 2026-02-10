@@ -7,12 +7,12 @@ import type { StoredRun } from '@/lib/analysis/run-store'
 import { RiArrowRightSLine, RiBookOpenLine, RiCoinsLine, RiDownloadLine, RiNodeTree, RiShareLine } from '@remixicon/react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useSyncExternalStore } from 'react'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
+import { exportResultPdf } from '@/lib/analysis/export-result-pdf'
 import { parseStoredRun, readRunRaw, subscribeRunStore, touchRun } from '@/lib/analysis/run-store'
 import { resolveRunTitle } from '@/lib/analysis/run-view'
 import {
@@ -99,6 +99,9 @@ export default function ResultPage() {
   const hydrated = useHydrated()
   const rid = useResolvedRid()
   const hasRid = rid != null && rid.length > 0
+  const exportRootRef = useRef<HTMLDivElement | null>(null)
+  const [isExportingPdf, setIsExportingPdf] = useState(false)
+  const [pdfError, setPdfError] = useState<string | null>(null)
 
   const raw = useSyncExternalStore(
     subscribeRunStore,
@@ -245,8 +248,7 @@ export default function ResultPage() {
   }, [hydrated])
 
   const breakdownRows = useMemo(() => {
-    const first = episodes.slice(0, 4)
-    return first.map(ep => ({
+    return episodes.map(ep => ({
       episode: String(ep.episode).padStart(2, '0'),
       health: signalByEpisode.get(ep.episode)?.health ?? ('fair' as HealthLevel),
       hook: hookByEpisode.get(ep.episode) ?? 'No Hook',
@@ -259,6 +261,35 @@ export default function ResultPage() {
   const onNewUpload = () => {
     window.sessionStorage.removeItem('sdicap:preflight_errors')
     router.push('/')
+  }
+
+  const handleExportPdf = async () => {
+    if (isExportingPdf)
+      return
+
+    const root = exportRootRef.current
+    if (root == null) {
+      setPdfError('PDF export failed. Please refresh and try again.')
+      return
+    }
+
+    setIsExportingPdf(true)
+    setPdfError(null)
+
+    try {
+      await exportResultPdf({
+        root,
+        title,
+        rid: rid ?? undefined,
+      })
+    }
+    catch (error) {
+      console.error('[result/export-pdf] failed', error)
+      setPdfError('PDF export failed. Please retry in the latest Chrome.')
+    }
+    finally {
+      setIsExportingPdf(false)
+    }
   }
 
   if (!hydrated) {
@@ -297,14 +328,11 @@ export default function ResultPage() {
             <Button size="sm" onClick={onNewUpload}>
               New Upload
             </Button>
-            <Avatar size="default">
-              <AvatarFallback>SA</AvatarFallback>
-            </Avatar>
           </div>
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-6xl px-6 pb-16 pt-10">
+      <div ref={exportRootRef} className="mx-auto w-full max-w-6xl px-6 pb-16 pt-10">
         <div className="flex flex-col gap-4">
           <div className="border-border/60 grid grid-cols-1 gap-4 border-b pb-6 lg:grid-cols-[1fr_auto] lg:items-start">
             <div className="min-w-0">
@@ -344,11 +372,23 @@ export default function ResultPage() {
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled
+                  onClick={() => { void handleExportPdf() }}
+                  disabled={isExportingPdf}
                   className="h-[38px] gap-2 px-4 text-muted-foreground border-border/60 bg-background shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)] disabled:opacity-100 hover:bg-background hover:text-muted-foreground disabled:hover:bg-background disabled:hover:text-muted-foreground"
                 >
-                  <RiDownloadLine className="size-5" />
-                  Export PDF
+                  {isExportingPdf
+                    ? (
+                        <>
+                          <Spinner className="size-4" />
+                          Exporting PDF...
+                        </>
+                      )
+                    : (
+                        <>
+                          <RiDownloadLine className="size-5" />
+                          Export PDF
+                        </>
+                      )}
                 </Button>
                 <Button
                   size="sm"
@@ -360,6 +400,11 @@ export default function ResultPage() {
                   Share
                 </Button>
               </div>
+              {pdfError != null && (
+                <p className="mt-2 text-right text-xs text-red-600">
+                  {pdfError}
+                </p>
+              )}
             </div>
           </div>
 
@@ -473,13 +518,13 @@ export default function ResultPage() {
               <p className="text-muted-foreground text-[10px] italic leading-[15px]">
                 Showing
                 {' '}
-                {Math.min(4, totalEpisodes)}
+                {breakdownRows.length}
                 {' '}
                 of
                 {' '}
                 {totalEpisodes}
                 {' '}
-                episodes. Full analysis follows in Appendix B.
+                episodes.
               </p>
             </div>
           </Card>

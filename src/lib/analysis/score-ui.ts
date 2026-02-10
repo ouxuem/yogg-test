@@ -1,8 +1,8 @@
 import type { AuditItem } from '@/lib/analysis/score-types'
 
-export type EpisodeHealthLevel = 'good' | 'fair' | 'peak'
+type EpisodeHealthLevel = 'good' | 'fair' | 'peak'
 
-export interface EpisodeSignal {
+interface EpisodeSignal {
   episode: number
   signal: number
   signalPercent: number

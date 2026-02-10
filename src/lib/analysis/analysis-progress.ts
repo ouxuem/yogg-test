@@ -1,4 +1,4 @@
-export type AnalysisPhase
+type AnalysisPhase
   = | 'validate_index'
     | 'structure_story'
     | 'map_characters'

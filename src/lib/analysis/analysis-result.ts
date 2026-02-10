@@ -9,7 +9,7 @@ export interface PreviewScore {
   market: number
 }
 
-export interface AnalysisResultMeta {
+interface AnalysisResultMeta {
   title?: string
   totalEpisodes?: number
   isCompleted?: boolean
@@ -43,18 +43,6 @@ export interface AnalysisResult {
       tabooHits: number
     }
   }
-  windows: Array<{
-    episode: number
-    tokensTotal: number
-    head_500w: string
-    tail_350w: string
-    next_head_100t: string
-    hook_context: string
-    paywall_context?: string
-    paywall_pre_context_1000t?: string
-    paywall_post_context_400t?: string
-    hasPaywall: boolean
-  }>
   previewScore: PreviewScore
   progress?: AnalysisProgress
   score?: AnalysisScoreResult

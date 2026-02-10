@@ -55,9 +55,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
                 className="flex items-center gap-2.5 group-data-[collapsible=icon]:hidden"
               >
                 <span className="from-primary to-secondary grid size-7 place-items-center rounded-md bg-gradient-to-br text-white">
-                  L
+                  S
                 </span>
-                <span className="text-sidebar-foreground text-base font-semibold tracking-tight">Demo</span>
+                <span className="text-sidebar-foreground text-base font-semibold tracking-tight">ScriptAI</span>
               </Link>
               <SidebarTrigger className="shrink-0" />
             </div>
@@ -87,7 +87,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <SidebarInset className="min-h-svh">
           <header className="border-border/60 bg-background/80 flex items-center gap-2 border-b px-4 py-3 backdrop-blur md:hidden">
             <SidebarTrigger />
-            <span className="text-sm font-medium">Demo</span>
+            <span className="text-sm font-medium">ScriptAI</span>
           </header>
           <div className="flex min-h-0 flex-1 flex-col">
             {children}

@@ -3,7 +3,7 @@ import { isNumber, isRecord, isString } from '@/lib/type-guards'
 
 export type StoredRun = Pick<AnalysisResult, 'l1' | 'meta' | 'previewScore' | 'score'>
 
-export interface RunIndexEntry {
+interface RunIndexEntry {
   rid: string
   createdAt: string
   lastAccessAt: string
@@ -248,7 +248,7 @@ export function createRid() {
   return `${now}-${rand}`
 }
 
-export function readRunsIndex(): RunIndexEntry[] {
+function readRunsIndex(): RunIndexEntry[] {
   if (typeof window === 'undefined')
     return []
   const raw = window.localStorage.getItem(INDEX_KEY)
@@ -274,7 +274,7 @@ export function readRunsIndex(): RunIndexEntry[] {
   return unique
 }
 
-export function writeRunsIndex(entries: RunIndexEntry[]) {
+function writeRunsIndex(entries: RunIndexEntry[]) {
   if (typeof window === 'undefined')
     return
   window.localStorage.setItem(INDEX_KEY, JSON.stringify(uniqueIndex(entries)))
@@ -293,7 +293,7 @@ export function readLastRid(): string | null {
   return value
 }
 
-export function writeLastRid(rid: string) {
+function writeLastRid(rid: string) {
   if (typeof window === 'undefined')
     return
   window.localStorage.setItem(LAST_RID_KEY, rid)
@@ -309,10 +309,6 @@ export function readRunRaw(rid: string): string | null {
   const raw = window.localStorage.getItem(runKey(rid))
   cache.runRawByRid.set(rid, raw)
   return raw
-}
-
-export function readRun(rid: string): StoredRun | null {
-  return parseStoredRun(readRunRaw(rid))
 }
 
 export function readRunInput(rid: string): string | null {
@@ -336,15 +332,6 @@ export function deleteRunInput(rid: string) {
   if (typeof window === 'undefined')
     return
   window.localStorage.removeItem(runInputKey(rid))
-  broadcastStoreChange()
-}
-
-export function deleteRun(rid: string) {
-  if (typeof window === 'undefined')
-    return
-  window.localStorage.removeItem(runKey(rid))
-  const nextIndex = readRunsIndex().filter(entry => entry.rid !== rid)
-  writeRunsIndex(nextIndex)
   broadcastStoreChange()
 }
 
@@ -406,7 +393,7 @@ export function writeRun(rid: string, run: StoredRun) {
   throw new Error('Unable to persist run: storage quota exceeded.')
 }
 
-export function broadcastStoreChange() {
+function broadcastStoreChange() {
   if (typeof window === 'undefined')
     return
   invalidateCache()

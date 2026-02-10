@@ -7,8 +7,8 @@ import { extractTextFile } from './extractors/text'
 import { normalizeExtractedText } from './normalize'
 
 export const IMPORT_FILE_ACCEPT = '.txt,.md,.markdown,.doc,.docx,.pdf'
-export const MAX_UPLOAD_FILE_SIZE_BYTES = 10 * 1024 * 1024
-export const MAX_UPLOAD_TEXT_LENGTH = 2_000_000
+const MAX_UPLOAD_FILE_SIZE_BYTES = 10 * 1024 * 1024
+const MAX_UPLOAD_TEXT_LENGTH = 2_000_000
 
 function createUploadError(code: UploadErrorCode, message: string): UploadError {
   return { code, message }

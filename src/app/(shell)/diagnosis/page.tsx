@@ -4,7 +4,6 @@ import type { EpisodeState } from './diagnosis-styles'
 import { RiArrowLeftSLine, RiCalendarLine } from '@remixicon/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -215,9 +214,6 @@ export default function DiagnosisPage() {
             <Button size="sm" onClick={() => router.push('/')}>
               New Upload
             </Button>
-            <Avatar size="default">
-              <AvatarFallback>SA</AvatarFallback>
-            </Avatar>
           </div>
         </div>
       </div>

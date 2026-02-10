@@ -37,7 +37,6 @@ interface ScoreApiRequest {
 interface PreparedPayload {
   meta: unknown
   l1: unknown
-  windows: unknown
   scoreRequest: ScoreApiRequest
 }
 
@@ -103,7 +102,6 @@ export default function AnalyzePage() {
         const run = asStoredRun({
           meta: { ...payload.meta, createdAt },
           l1: payload.l1,
-          windows: payload.windows,
           previewScore,
           score,
         })

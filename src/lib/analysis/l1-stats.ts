@@ -3,7 +3,7 @@ import type { L1KeywordConfig } from '@/lib/analysis/l1-keywords'
 import { L1_KEYWORDS_EN, L1_KEYWORDS_ZH } from '@/lib/analysis/l1-keywords'
 import { tokenize } from '@/lib/analysis/tokenize'
 
-export interface EpisodeL1Stats {
+interface EpisodeL1Stats {
   episode: number
   tokenCount: number
   wordCount: number
@@ -15,7 +15,7 @@ export interface EpisodeL1Stats {
   tabooHits: number
 }
 
-export interface L1StatsResult {
+interface L1StatsResult {
   episodes: EpisodeL1Stats[]
   totals: Omit<EpisodeL1Stats, 'episode'>
 }
@@ -83,7 +83,7 @@ function countKeywordHits(text: string, tokenizer: AnalysisTokenizer, keywords: 
   return keywords.reduce((acc, keyword) => acc + countGenericKeywordHits(text, keyword), 0)
 }
 
-export function computeEpisodeL1Stats(
+function computeEpisodeL1Stats(
   episode: { number: number, text: string },
   language: AnalysisLanguage,
   tokenizer: AnalysisTokenizer,

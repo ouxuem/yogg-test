@@ -1,7 +1,7 @@
 import type { AnalysisLanguage, AnalysisTokenizer } from '@/lib/analysis/detect-language'
 import { detectLanguage, detectLanguageMode, detectTokenizer } from '@/lib/analysis/detect-language'
 
-export type PreflightErrorCode
+type PreflightErrorCode
   = | 'ERR_TOO_SHORT'
     | 'ERR_NO_EPISODE_HEADERS'
     | 'ERR_INVALID_TOTAL_EPISODES'
@@ -13,15 +13,15 @@ export type PreflightErrorCode
     | 'ERR_MULTI_PAYWALL_IN_EPISODE'
     | 'ERR_PAYWALL_OUT_OF_RANGE'
 
-export type PreflightSeverity = 'fatal' | 'warn'
+type PreflightSeverity = 'fatal' | 'warn'
 
-export interface PreflightIssue {
+interface PreflightIssue {
   code: PreflightErrorCode
   message: string
   severity: PreflightSeverity
 }
 
-export interface ParsedMeta {
+interface ParsedMeta {
   title?: string
   totalEpisodes?: number
   isCompleted?: boolean
@@ -29,16 +29,16 @@ export interface ParsedMeta {
   tokenizer: AnalysisTokenizer
 }
 
-export interface ParsedEpisode {
+interface ParsedEpisode {
   number: number
   text: string
   paywallCount: number
 }
 
-export type CompletionState = 'completed' | 'incomplete' | 'unknown'
-export type IngestMode = 'official' | 'provisional'
+type CompletionState = 'completed' | 'incomplete' | 'unknown'
+type IngestMode = 'official' | 'provisional'
 
-export interface ParseIngest {
+interface ParseIngest {
   declaredTotalEpisodes?: number
   inferredTotalEpisodes: number
   totalEpisodesForScoring: number
@@ -48,7 +48,7 @@ export interface ParseIngest {
   mode: IngestMode
 }
 
-export interface ParseResult {
+interface ParseResult {
   meta: ParsedMeta
   ingest: ParseIngest
   episodes: ParsedEpisode[]
