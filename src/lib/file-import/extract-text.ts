@@ -6,7 +6,7 @@ import { extractPdfFile } from './extractors/pdf'
 import { extractTextFile } from './extractors/text'
 import { normalizeExtractedText } from './normalize'
 
-export const IMPORT_FILE_ACCEPT = '.txt,.md,.markdown,.doc,.docx,.pdf'
+export const IMPORT_FILE_ACCEPT = '.txt,.md,.markdown,.pdf'
 const MAX_UPLOAD_FILE_SIZE_BYTES = 10 * 1024 * 1024
 const MAX_UPLOAD_TEXT_LENGTH = 2_000_000
 
@@ -22,7 +22,7 @@ function fail(code: UploadErrorCode, message: string): ExtractTextResult {
 }
 
 function unsupportedTypeMessage() {
-  return 'Unsupported file type. Use txt, md, markdown, docx, or text-based pdf.'
+  return 'Unsupported file type. Use txt, md, markdown, or text-based pdf.'
 }
 
 function fileTooLargeMessage() {

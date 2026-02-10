@@ -161,7 +161,10 @@ export default function DiagnosisPage() {
     )
   }
 
-  if (!hasRid || !run || presentation == null || diagnosis == null)
+  if (!hasRid)
+    return null
+
+  if (!run || presentation == null || diagnosis == null)
     return null
 
   return (

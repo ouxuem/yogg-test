@@ -33,9 +33,8 @@ const ResultCharts = dynamic(async () => import('./result-charts'), {
             </Badge>
           </div>
         </CardHeader>
-        <CardContent>
-          <div className="h-[220px] w-full rounded-md bg-muted/20" />
-          <div className="mt-3 h-[20px] w-3/4 rounded bg-muted/15" />
+        <CardContent className="text-muted-foreground text-sm">
+          Loading chart...
         </CardContent>
       </Card>
 
@@ -57,9 +56,8 @@ const ResultCharts = dynamic(async () => import('./result-charts'), {
             </div>
           </div>
         </CardHeader>
-        <CardContent>
-          <div className="h-[220px] w-full rounded-md bg-muted/20" />
-          <div className="mt-3 h-[20px] w-3/4 rounded bg-muted/15" />
+        <CardContent className="text-muted-foreground text-sm">
+          Loading chart...
         </CardContent>
       </Card>
     </div>
@@ -89,6 +87,10 @@ export default function ResultPage() {
     () => null,
   )
   const result = useMemo(() => parseStoredRun(raw), [raw])
+  const effectiveScore = result?.score ?? null
+  const previewScore: PreviewScore = result?.previewScore ?? EMPTY_PREVIEW_SCORE
+  const presentation = effectiveScore?.presentation ?? null
+  const breakdownRows = presentation?.episodeRows ?? []
 
   useEffect(() => {
     if (!hydrated)
@@ -97,7 +99,7 @@ export default function ResultPage() {
       router.replace('/')
       return
     }
-    if (result)
+    if (result != null)
       return
     const rawNow = readRunRaw(rid)
     if (rawNow == null)
@@ -109,10 +111,6 @@ export default function ResultPage() {
       return
     touchRun(rid)
   }, [hasRid, rid, result])
-
-  const previewScore: PreviewScore = result?.previewScore ?? EMPTY_PREVIEW_SCORE
-  const presentation = result?.score.presentation
-  const breakdownRows = presentation?.episodeRows ?? []
 
   const totalEpisodes = result?.meta.totalEpisodes ?? breakdownRows.length
   const overall100 = clamp(previewScore.overall100, 0, 100)
@@ -206,7 +204,10 @@ export default function ResultPage() {
     )
   }
 
-  if (!hasRid || !result || presentation == null)
+  if (!hasRid)
+    return null
+
+  if (!result)
     return null
 
   return (
@@ -309,7 +310,7 @@ export default function ResultPage() {
                 <div className="mt-auto">
                   <div className="text-foreground text-lg font-semibold tracking-tight">Commercial Adaptability</div>
                   <p className="text-muted-foreground mx-auto mt-3 max-w-[28ch] text-xs leading-5">
-                    {presentation.commercialSummary}
+                    {presentation?.commercialSummary}
                   </p>
                 </div>
               </CardContent>
@@ -323,7 +324,7 @@ export default function ResultPage() {
                   indicatorClassName="bg-[var(--chart-1)]"
                   label="Monetization Power"
                   value={monetization}
-                  description={presentation.dimensionNarratives.monetization}
+                  description={presentation?.dimensionNarratives.monetization ?? ''}
                 />
                 <MetricRow
                   icon={RiBookOpenLine}
@@ -331,7 +332,7 @@ export default function ResultPage() {
                   indicatorClassName="bg-[var(--chart-4)]"
                   label="Story Structure Quality"
                   value={story}
-                  description={presentation.dimensionNarratives.story}
+                  description={presentation?.dimensionNarratives.story ?? ''}
                 />
                 <MetricRow
                   icon={RiNodeTree}
@@ -339,16 +340,18 @@ export default function ResultPage() {
                   indicatorClassName="bg-[var(--chart-5)]"
                   label="Market Compatibility"
                   value={market}
-                  description={presentation.dimensionNarratives.market}
+                  description={presentation?.dimensionNarratives.market ?? ''}
                 />
               </CardContent>
             </Card>
           </div>
 
-          <ResultCharts
-            emotion={presentation.charts.emotion}
-            conflict={presentation.charts.conflict}
-          />
+          {presentation != null && (
+            <ResultCharts
+              emotion={presentation.charts.emotion}
+              conflict={presentation.charts.conflict}
+            />
+          )}
 
           <Card className="bg-muted/20 shadow-xs py-0 ring-border/60">
             <div className="bg-background/50 border-border/60 flex h-[58px] items-center justify-between border-b px-6">
@@ -385,30 +388,32 @@ export default function ResultPage() {
               </div>
 
               <div className="space-y-1 pt-2">
-                {breakdownRows.map((row) => {
-                  const health: HealthLevel = row.health === 'GOOD' ? 'good' : row.health === 'PEAK' ? 'peak' : 'fair'
-                  return (
-                    <div
-                      key={row.episode}
-                      className="grid min-h-[43px] grid-cols-[56px_112px_170px_1fr] items-center px-2 py-2"
-                    >
-                      <div className="text-foreground text-[14px] font-semibold tabular-nums">
-                        {String(row.episode).padStart(2, '0')}
-                      </div>
-                      <div>
-                        <HealthBadge level={health} />
-                      </div>
-                      <div className="text-foreground text-[12px] font-medium leading-4">
-                        {row.primaryHookType}
-                      </div>
-                      <div className="text-muted-foreground text-[12px] leading-[19.5px]">
-                        <p className="overflow-hidden text-ellipsis line-clamp-2 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
-                          {row.aiHighlight}
-                        </p>
-                      </div>
-                    </div>
-                  )
-                })}
+                {breakdownRows.length > 0
+                  ? breakdownRows.map((row) => {
+                      const health: HealthLevel = row.health === 'GOOD' ? 'good' : row.health === 'PEAK' ? 'peak' : 'fair'
+                      return (
+                        <div
+                          key={row.episode}
+                          className="grid min-h-[43px] grid-cols-[56px_112px_170px_1fr] items-center px-2 py-2"
+                        >
+                          <div className="text-foreground text-[14px] font-semibold tabular-nums">
+                            {String(row.episode).padStart(2, '0')}
+                          </div>
+                          <div>
+                            <HealthBadge level={health} />
+                          </div>
+                          <div className="text-foreground text-[12px] font-medium leading-4">
+                            {row.primaryHookType}
+                          </div>
+                          <div className="text-muted-foreground text-[12px] leading-[19.5px]">
+                            <p className="overflow-hidden text-ellipsis line-clamp-2 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
+                              {row.aiHighlight}
+                            </p>
+                          </div>
+                        </div>
+                      )
+                    })
+                  : null}
               </div>
             </div>
 

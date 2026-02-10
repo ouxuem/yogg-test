@@ -1,25 +1,30 @@
 'use client'
 
 import type { ChangeEvent } from 'react'
-import type { UploadError } from '@/lib/file-import/types'
 import { RiFileTextLine, RiPaletteLine } from '@remixicon/react'
 import { useRouter } from 'next/navigation'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Button } from '@/components/ui/button'
+import GlobalLoading from '@/components/ui/global-loading'
 import { Textarea } from '@/components/ui/textarea'
-import { createRid, writeRunInput } from '@/lib/analysis/run-store'
-import { extractTextFromFile, IMPORT_FILE_ACCEPT } from '@/lib/file-import/extract-text'
+import { createRid } from '@/lib/analysis/run-store'
+import { getStreamSessionSnapshot, startStreamSession, subscribeStreamSession } from '@/lib/analysis/stream-session'
+import { IMPORT_FILE_ACCEPT } from '@/lib/file-import/extract-text'
 import { isRecord } from '@/lib/type-guards'
 
 const creativeTextureSrc = '/assets/creative-space-texture.png'
 const PREFLIGHT_ERRORS_KEY = 'sdicap:preflight_errors'
+const DEFAULT_SCORE_API_ORIGIN = 'https://worker.1143434456qq.workers.dev'
+const MAX_UPLOAD_FILE_SIZE_BYTES = 10 * 1024 * 1024
+const ALLOWED_FILE_EXTENSIONS = ['.pdf', '.md', '.markdown', '.txt']
+const ALLOWED_FILE_MIME_TYPES = ['application/pdf', 'text/plain', 'text/markdown']
 
-interface PreflightError {
+interface UiError {
   code: string
   message: string
 }
 
-function isPreflightError(value: unknown): value is PreflightError {
+function isUiError(value: unknown): value is UiError {
   if (!isRecord(value))
     return false
   return typeof value.code === 'string' && typeof value.message === 'string'
@@ -50,12 +55,57 @@ function withFileTitleFallback(input: string, fileName: string | null) {
   return `TITLE: ${inferredTitle}\n${input}`
 }
 
+function createPersistedMeta(title: string | null) {
+  return {
+    createdAt: new Date().toISOString(),
+    language: 'en' as const,
+    tokenizer: 'whitespace' as const,
+    title: title ?? undefined,
+    isCompleted: true,
+  }
+}
+
+function toFileExtension(fileName: string) {
+  const lower = fileName.toLowerCase()
+  const match = ALLOWED_FILE_EXTENSIONS.find(ext => lower.endsWith(ext))
+  return match ?? null
+}
+
+function validateUploadFile(file: File): UiError | null {
+  if (file.size > MAX_UPLOAD_FILE_SIZE_BYTES) {
+    return {
+      code: 'ERR_FILE_TOO_LARGE',
+      message: 'File is too large. Maximum supported size is 10MB.',
+    }
+  }
+
+  const hasAllowedExtension = toFileExtension(file.name) != null
+  const normalizedMimeType = file.type.trim().toLowerCase()
+  const hasAllowedMimeType = normalizedMimeType.length > 0 && ALLOWED_FILE_MIME_TYPES.includes(normalizedMimeType)
+  if (!hasAllowedExtension && !hasAllowedMimeType) {
+    return {
+      code: 'ERR_UNSUPPORTED_TYPE',
+      message: 'Unsupported file type. Use txt, md, markdown, or pdf.',
+    }
+  }
+
+  return null
+}
+
+function resolveUiErrors(baseErrors: UiError[], streamSnapshot: ReturnType<typeof getStreamSessionSnapshot>) {
+  const errors = [...baseErrors]
+  if (streamSnapshot?.status === 'error') {
+    const message = streamSnapshot.error ?? 'AI scoring failed.'
+    errors.unshift({ code: 'ERR_AI_EVAL', message })
+  }
+  return errors
+}
+
 export function ComponentExample() {
   const [input, setInput] = useState('')
-  const [uploadErrors, setUploadErrors] = useState<UploadError[]>([])
   const [isImporting, setIsImporting] = useState(false)
   const [importedFileName, setImportedFileName] = useState<string | null>(null)
-  const [preflightErrors, setPreflightErrors] = useState<PreflightError[]>(() => {
+  const [uiErrors, setUiErrors] = useState<UiError[]>(() => {
     if (typeof window === 'undefined')
       return []
 
@@ -66,7 +116,7 @@ export function ComponentExample() {
     try {
       const parsed: unknown = JSON.parse(raw)
       if (Array.isArray(parsed))
-        return parsed.filter(isPreflightError)
+        return parsed.filter(isUiError)
     }
     catch {
       return [{ code: 'ERR_UNKNOWN', message: 'Input validation failed. Please try again.' }]
@@ -74,32 +124,86 @@ export function ComponentExample() {
 
     return []
   })
+  const [activeRid, setActiveRid] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const canAnalyze = useMemo(() => input.trim().length > 0, [input])
   const router = useRouter()
+
+  const streamSnapshot = useSyncExternalStore(
+    (callback) => {
+      if (activeRid == null)
+        return () => {}
+      return subscribeStreamSession(activeRid, callback)
+    },
+    () => {
+      if (activeRid == null)
+        return null
+      return getStreamSessionSnapshot(activeRid)
+    },
+    () => null,
+  )
+
+  const isSubmitting = activeRid != null && (streamSnapshot == null || streamSnapshot.status === 'connecting')
 
   useEffect(() => {
     window.sessionStorage.removeItem(PREFLIGHT_ERRORS_KEY)
   }, [])
 
-  const onAnalyze = () => {
-    if (!canAnalyze || isImporting)
+  useEffect(() => {
+    if (activeRid == null || streamSnapshot == null)
       return
-    setUploadErrors([])
-    setPreflightErrors([])
+
+    if (streamSnapshot.status === 'done') {
+      router.replace(`/result?rid=${encodeURIComponent(activeRid)}`)
+    }
+  }, [activeRid, router, streamSnapshot])
+
+  const startTextStream = (nextInput: string, nextFileName: string | null) => {
+    const normalized = withFileTitleFallback(nextInput.trim(), nextFileName)
+    if (normalized.length === 0)
+      return
+
+    setUiErrors([])
     window.sessionStorage.removeItem(PREFLIGHT_ERRORS_KEY)
+
     const rid = createRid()
-    writeRunInput(rid, withFileTitleFallback(input, importedFileName))
-    router.push(`/analyze?rid=${encodeURIComponent(rid)}`)
+    setActiveRid(rid)
+    startStreamSession({
+      rid,
+      apiOrigin: DEFAULT_SCORE_API_ORIGIN,
+      text: normalized,
+      persistedMeta: createPersistedMeta(inferTitleFromFileName(nextFileName)),
+    })
+  }
+
+  const startFileStream = (file: File) => {
+    setUiErrors([])
+    window.sessionStorage.removeItem(PREFLIGHT_ERRORS_KEY)
+
+    const rid = createRid()
+    setActiveRid(rid)
+    setImportedFileName(file.name)
+    startStreamSession({
+      rid,
+      apiOrigin: DEFAULT_SCORE_API_ORIGIN,
+      file,
+      persistedMeta: createPersistedMeta(inferTitleFromFileName(file.name)),
+    })
+  }
+
+  const onAnalyze = () => {
+    if (!canAnalyze || isImporting || isSubmitting)
+      return
+    startTextStream(input, importedFileName)
   }
 
   const onOpenFilePicker = () => {
-    if (isImporting)
+    if (isImporting || isSubmitting)
       return
     fileInputRef.current?.click()
   }
 
-  const onFileSelected = async (event: ChangeEvent<HTMLInputElement>) => {
+  const onFileSelected = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0]
     event.currentTarget.value = ''
     if (file == null)
@@ -107,30 +211,32 @@ export function ComponentExample() {
 
     if (input.trim().length > 0) {
       // eslint-disable-next-line no-alert -- 用原生确认框做覆盖确认，避免引入额外弹层状态与样式改动。
-      const shouldReplace = window.confirm('Import will replace current text. Continue?')
+      const shouldReplace = window.confirm('File upload starts analysis immediately. Continue?')
       if (!shouldReplace)
         return
     }
 
     setIsImporting(true)
-    setUploadErrors([])
-    try {
-      const result = await extractTextFromFile(file)
-      if (!result.ok) {
-        setImportedFileName(null)
-        setUploadErrors([result.error])
-        return
-      }
-
-      setInput(result.text)
-      setImportedFileName(result.fileName)
-      setUploadErrors([])
-      setPreflightErrors([])
-      window.sessionStorage.removeItem(PREFLIGHT_ERRORS_KEY)
-    }
-    finally {
+    const validationError = validateUploadFile(file)
+    if (validationError != null) {
+      setUiErrors([validationError])
       setIsImporting(false)
+      return
     }
+
+    startFileStream(file)
+    setIsImporting(false)
+  }
+
+  if (isSubmitting) {
+    const message = (streamSnapshot?.message?.trim().length ?? 0) > 0
+      ? (streamSnapshot?.message ?? 'Analyzing script...')
+      : 'Analyzing script...'
+    return (
+      <section className="fixed inset-0 z-120">
+        <GlobalLoading message={message} testId="home-stream-loading" />
+      </section>
+    )
   }
 
   return (
@@ -143,10 +249,10 @@ export function ComponentExample() {
           canAnalyze={canAnalyze}
           isImporting={isImporting}
           importedFileName={importedFileName}
-          uploadErrors={uploadErrors}
+          uiErrors={resolveUiErrors(uiErrors, streamSnapshot)}
           onOpenFilePicker={onOpenFilePicker}
           onAnalyze={onAnalyze}
-          errors={preflightErrors}
+          isSubmitting={isSubmitting}
         />
         <input
           ref={fileInputRef}
@@ -154,9 +260,7 @@ export function ComponentExample() {
           accept={IMPORT_FILE_ACCEPT}
           className="hidden"
           data-testid="analysis-file-input"
-          onChange={(event) => {
-            void onFileSelected(event)
-          }}
+          onChange={onFileSelected}
         />
       </div>
     </section>
@@ -182,8 +286,8 @@ function IdeaComposerCard({
   importedFileName,
   onOpenFilePicker,
   onAnalyze,
-  errors,
-  uploadErrors,
+  uiErrors,
+  isSubmitting,
 }: {
   value: string
   onChange: (nextValue: string) => void
@@ -192,11 +296,11 @@ function IdeaComposerCard({
   importedFileName: string | null
   onOpenFilePicker: () => void
   onAnalyze: () => void
-  errors: PreflightError[]
-  uploadErrors: UploadError[]
+  uiErrors: UiError[]
+  isSubmitting: boolean
 }) {
-  const combinedErrors = [...uploadErrors, ...errors].slice(0, 3)
-  const isActionable = canAnalyze && !isImporting
+  const combinedErrors = uiErrors.slice(0, 3)
+  const isActionable = canAnalyze && !isImporting && !isSubmitting
 
   return (
     <div className="relative w-full max-w-[816px]">
@@ -224,7 +328,7 @@ function IdeaComposerCard({
             )}
             {importedFileName != null && (
               <p className="text-muted-foreground mb-3 text-xs leading-5">
-                Imported:
+                Ready file:
                 {' '}
                 <span className="text-foreground font-medium">{importedFileName}</span>
               </p>
@@ -256,7 +360,7 @@ function IdeaComposerCard({
                   className="bg-background text-foreground hover:bg-muted/40 size-10 rounded-full border-border/70 shadow-xs"
                   aria-label="Import file"
                   data-testid="analysis-file-button"
-                  disabled={isImporting}
+                  disabled={isImporting || isSubmitting}
                   onClick={onOpenFilePicker}
                 >
                   <RiFileTextLine className={isImporting ? 'size-[18px] animate-pulse' : 'size-[18px]'} />
@@ -274,7 +378,7 @@ function IdeaComposerCard({
                   ].join(' ')}
                   data-testid="analysis-submit"
                   aria-label="New Project"
-                  disabled={!canAnalyze || isImporting}
+                  disabled={!canAnalyze || isImporting || isSubmitting}
                   onClick={onAnalyze}
                 >
                   <span
