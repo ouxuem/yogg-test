@@ -1,9 +1,7 @@
 'use client'
 
-import type { ResultChartDatum } from './result-charts'
 import type { HealthLevel } from './result-sections'
 import type { PreviewScore } from '@/lib/analysis/analysis-result'
-import type { StoredRun } from '@/lib/analysis/run-store'
 import { RiArrowRightSLine, RiBookOpenLine, RiCoinsLine, RiDownloadLine, RiNodeTree, RiShareLine } from '@remixicon/react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
@@ -15,12 +13,6 @@ import { Spinner } from '@/components/ui/spinner'
 import { exportResultPdf } from '@/lib/analysis/export-result-pdf'
 import { parseStoredRun, readRunRaw, subscribeRunStore, touchRun } from '@/lib/analysis/run-store'
 import { resolveRunTitle } from '@/lib/analysis/run-view'
-import {
-  buildDimensionInsight,
-  buildEpisodeSignals,
-  buildHookTypeByEpisode,
-  buildIssueReasonByEpisode,
-} from '@/lib/analysis/score-ui'
 import { useResolvedRid } from '@/lib/analysis/use-resolved-rid'
 import { useHydrated } from '@/lib/hooks/use-hydrated'
 import { clamp } from '@/lib/number'
@@ -74,24 +66,12 @@ const ResultCharts = dynamic(async () => import('./result-charts'), {
   ),
 })
 
-const EMPTY_EPISODES: StoredRun['l1']['episodes'] = []
 const EMPTY_PREVIEW_SCORE: PreviewScore = {
   overall100: 0,
   grade: 'C',
   monetization: 0,
   story: 0,
   market: 0,
-}
-
-function normalizeSeries(values: number[]) {
-  const max = Math.max(0, ...values)
-  if (max === 0)
-    return values.map(() => 0)
-  const denominator = Math.log1p(max)
-  return values.map((value) => {
-    const safe = Math.max(0, value)
-    return Math.round((Math.log1p(safe) / denominator) * 100)
-  })
 }
 
 export default function ResultPage() {
@@ -130,10 +110,11 @@ export default function ResultPage() {
     touchRun(rid)
   }, [hasRid, rid, result])
 
-  const episodes = result?.l1.episodes ?? EMPTY_EPISODES
-  const totalEpisodes = result?.meta.totalEpisodes ?? episodes.length
-
   const previewScore: PreviewScore = result?.previewScore ?? EMPTY_PREVIEW_SCORE
+  const presentation = result?.score.presentation
+  const breakdownRows = presentation?.episodeRows ?? []
+
+  const totalEpisodes = result?.meta.totalEpisodes ?? breakdownRows.length
   const overall100 = clamp(previewScore.overall100, 0, 100)
   const grade = previewScore.grade
 
@@ -142,84 +123,6 @@ export default function ResultPage() {
   const market = clamp(previewScore.market, 0, 100)
 
   const title = resolveRunTitle(result?.meta.title)
-  const auditItems = useMemo(() => result?.score?.audit.items ?? [], [result])
-
-  const emotionRaw = useMemo(() => episodes.map(ep => ep.emotionHits), [episodes])
-  const conflictExtRaw = useMemo(() => episodes.map(ep => ep.conflictExtHits), [episodes])
-  const conflictIntRaw = useMemo(() => episodes.map(ep => ep.conflictIntHits), [episodes])
-  const conflictRaw = useMemo(() => {
-    return episodes.map((ep, idx) => {
-      const ext = conflictExtRaw[idx] ?? 0
-      const int = conflictIntRaw[idx] ?? 0
-      const decomposed = ext + int
-      return decomposed > 0 ? decomposed : ep.conflictHits
-    })
-  }, [conflictExtRaw, conflictIntRaw, episodes])
-
-  const emotion = useMemo(() => normalizeSeries(emotionRaw), [emotionRaw])
-  const conflict = useMemo(() => normalizeSeries(conflictRaw), [conflictRaw])
-
-  const chartData = useMemo(() => {
-    return episodes.map((ep, idx) => ({
-      ep: `Ep ${String(ep.episode).padStart(2, '0')}`,
-      emotion: emotion[idx] ?? 0,
-      conflict: conflict[idx] ?? 0,
-      conflictExt: (() => {
-        const extRaw = conflictExtRaw[idx] ?? 0
-        const intRaw = conflictIntRaw[idx] ?? 0
-        const totalRaw = extRaw + intRaw
-        if (totalRaw <= 0)
-          return 0
-        const normalizedTotal = conflict[idx] ?? 0
-        return Math.round(normalizedTotal * (extRaw / totalRaw))
-      })(),
-      conflictInt: (() => {
-        const extRaw = conflictExtRaw[idx] ?? 0
-        const intRaw = conflictIntRaw[idx] ?? 0
-        const totalRaw = extRaw + intRaw
-        if (totalRaw <= 0)
-          return 0
-        const normalizedTotal = conflict[idx] ?? 0
-        const normalizedExt = Math.round(normalizedTotal * (extRaw / totalRaw))
-        return Math.max(0, normalizedTotal - normalizedExt)
-      })(),
-      rawEmotion: emotionRaw[idx] ?? 0,
-      rawConflict: conflictRaw[idx] ?? 0,
-      rawConflictExt: conflictExtRaw[idx] ?? 0,
-      rawConflictInt: conflictIntRaw[idx] ?? 0,
-    })) satisfies ResultChartDatum[]
-  }, [conflict, conflictExtRaw, conflictIntRaw, conflictRaw, emotion, emotionRaw, episodes])
-
-  const payDescription = useMemo(() => {
-    return buildDimensionInsight(
-      auditItems,
-      'pay.',
-      'Paywall and retention signals are stable across the current script sample.',
-    )
-  }, [auditItems])
-
-  const storyDescription = useMemo(() => {
-    return buildDimensionInsight(
-      auditItems,
-      'story.',
-      'Story structure remains cohesive with no critical narrative warning in current scoring.',
-    )
-  }, [auditItems])
-
-  const marketDescription = useMemo(() => {
-    return buildDimensionInsight(
-      auditItems,
-      'market.',
-      'Market fit remains acceptable under current ruleset checks.',
-    )
-  }, [auditItems])
-
-  const episodeSignals = useMemo(() => buildEpisodeSignals(episodes), [episodes])
-  const signalByEpisode = useMemo(() => {
-    return new Map(episodeSignals.map(item => [item.episode, item]))
-  }, [episodeSignals])
-  const hookByEpisode = useMemo(() => buildHookTypeByEpisode(auditItems), [auditItems])
-  const issueByEpisode = useMemo(() => buildIssueReasonByEpisode(auditItems), [auditItems])
 
   useEffect(() => {
     if (!hydrated)
@@ -246,17 +149,6 @@ export default function ResultPage() {
         window.cancelIdleCallback?.(idleId)
     }
   }, [hydrated])
-
-  const breakdownRows = useMemo(() => {
-    return episodes.map(ep => ({
-      episode: String(ep.episode).padStart(2, '0'),
-      health: signalByEpisode.get(ep.episode)?.health ?? ('fair' as HealthLevel),
-      hook: hookByEpisode.get(ep.episode) ?? 'No Hook',
-      highlight:
-        issueByEpisode.get(ep.episode)
-        ?? `Emotion hits ${ep.emotionHits}, conflict hits ${ep.conflictHits}.`,
-    }))
-  }, [episodes, hookByEpisode, issueByEpisode, signalByEpisode])
 
   const onNewUpload = () => {
     window.sessionStorage.removeItem('sdicap:preflight_errors')
@@ -314,7 +206,7 @@ export default function ResultPage() {
     )
   }
 
-  if (!hasRid || !result)
+  if (!hasRid || !result || presentation == null)
     return null
 
   return (
@@ -417,7 +309,7 @@ export default function ResultPage() {
                 <div className="mt-auto">
                   <div className="text-foreground text-lg font-semibold tracking-tight">Commercial Adaptability</div>
                   <p className="text-muted-foreground mx-auto mt-3 max-w-[28ch] text-xs leading-5">
-                    A quick preview while deeper analysis continues to evolve.
+                    {presentation.commercialSummary}
                   </p>
                 </div>
               </CardContent>
@@ -431,7 +323,7 @@ export default function ResultPage() {
                   indicatorClassName="bg-[var(--chart-1)]"
                   label="Monetization Power"
                   value={monetization}
-                  description={payDescription}
+                  description={presentation.dimensionNarratives.monetization}
                 />
                 <MetricRow
                   icon={RiBookOpenLine}
@@ -439,7 +331,7 @@ export default function ResultPage() {
                   indicatorClassName="bg-[var(--chart-4)]"
                   label="Story Structure Quality"
                   value={story}
-                  description={storyDescription}
+                  description={presentation.dimensionNarratives.story}
                 />
                 <MetricRow
                   icon={RiNodeTree}
@@ -447,13 +339,16 @@ export default function ResultPage() {
                   indicatorClassName="bg-[var(--chart-5)]"
                   label="Market Compatibility"
                   value={market}
-                  description={marketDescription}
+                  description={presentation.dimensionNarratives.market}
                 />
               </CardContent>
             </Card>
           </div>
 
-          <ResultCharts chartData={chartData} />
+          <ResultCharts
+            emotion={presentation.charts.emotion}
+            conflict={presentation.charts.conflict}
+          />
 
           <Card className="bg-muted/20 shadow-xs py-0 ring-border/60">
             <div className="bg-background/50 border-border/60 flex h-[58px] items-center justify-between border-b px-6">
@@ -490,27 +385,30 @@ export default function ResultPage() {
               </div>
 
               <div className="space-y-1 pt-2">
-                {breakdownRows.map(row => (
-                  <div
-                    key={row.episode}
-                    className="grid min-h-[43px] grid-cols-[56px_112px_170px_1fr] items-center px-2 py-2"
-                  >
-                    <div className="text-foreground text-[14px] font-semibold tabular-nums">
-                      {row.episode}
+                {breakdownRows.map((row) => {
+                  const health: HealthLevel = row.health === 'GOOD' ? 'good' : row.health === 'PEAK' ? 'peak' : 'fair'
+                  return (
+                    <div
+                      key={row.episode}
+                      className="grid min-h-[43px] grid-cols-[56px_112px_170px_1fr] items-center px-2 py-2"
+                    >
+                      <div className="text-foreground text-[14px] font-semibold tabular-nums">
+                        {String(row.episode).padStart(2, '0')}
+                      </div>
+                      <div>
+                        <HealthBadge level={health} />
+                      </div>
+                      <div className="text-foreground text-[12px] font-medium leading-4">
+                        {row.primaryHookType}
+                      </div>
+                      <div className="text-muted-foreground text-[12px] leading-[19.5px]">
+                        <p className="overflow-hidden text-ellipsis line-clamp-2 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
+                          {row.aiHighlight}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <HealthBadge level={row.health} />
-                    </div>
-                    <div className="text-foreground text-[12px] font-medium leading-4">
-                      {row.hook}
-                    </div>
-                    <div className="text-muted-foreground text-[12px] leading-[19.5px]">
-                      <p className="overflow-hidden text-ellipsis line-clamp-2 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
-                        {row.highlight}
-                      </p>
-                    </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
 

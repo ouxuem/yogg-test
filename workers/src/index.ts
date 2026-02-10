@@ -2,7 +2,6 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { z } from 'zod'
 import { evaluateAiScore } from './score/score-ai-evaluator'
-import { buildEpisodeWindows } from './score/window-builder'
 
 interface CloudflareBindings {
   ZENAI_LLM_API_KEY?: string
@@ -11,11 +10,18 @@ interface CloudflareBindings {
 }
 
 const requestSchema = z.object({
-  episodes: z.array(z.object({
-    number: z.number().int().min(1),
-    text: z.string(),
-    paywallCount: z.number().int().min(0),
-  })).min(1),
+  episodeBriefs: z.array(z.object({
+    episode: z.number().int().min(1),
+    opening: z.string().trim().min(1).max(1200),
+    ending: z.string().trim().min(1).max(1200),
+    keyEvents: z.array(z.string().trim().min(1).max(220)).min(3).max(6),
+    tokenCount: z.number().int().min(1),
+    wordCount: z.number().int().min(1),
+    emotionRaw: z.number().min(0),
+    conflictExtRaw: z.number().min(0),
+    conflictIntRaw: z.number().min(0),
+    paywallFlag: z.boolean(),
+  })).min(1).max(120),
   ingest: z.object({
     declaredTotalEpisodes: z.number().int().min(1).optional(),
     inferredTotalEpisodes: z.number().int().min(0),
@@ -24,10 +30,9 @@ const requestSchema = z.object({
     completionState: z.enum(['completed', 'incomplete', 'unknown']),
     coverageRatio: z.number().min(0).max(1),
     mode: z.enum(['official', 'provisional']),
-  }).optional(),
+  }),
   language: z.enum(['en', 'zh']),
   tokenizer: z.enum(['whitespace', 'intl-segmenter', 'char-fallback']),
-  totalWordsFromL1: z.number().min(1),
 })
 
 const app = new Hono<{ Bindings: CloudflareBindings }>()
@@ -75,23 +80,14 @@ app.post('/api/score', async (c) => {
     )
   }
 
-  try {
-    const windows = buildEpisodeWindows(
-      parsed.data.episodes.map(episode => ({
-        number: episode.number,
-        text: episode.text,
-        paywallCount: episode.paywallCount,
-      })),
-      parsed.data.tokenizer,
-    )
+  const episodeBriefs = normalizeEpisodeBriefs(parsed.data.episodeBriefs)
 
+  try {
     const score = await evaluateAiScore({
       env: c.env,
-      episodes: parsed.data.episodes,
-      windows,
+      episodeBriefs,
       language: parsed.data.language,
       tokenizer: parsed.data.tokenizer,
-      totalWordsFromL1: parsed.data.totalWordsFromL1,
       ingest: parsed.data.ingest,
     })
 
@@ -112,3 +108,34 @@ function hasApiKey(env: CloudflareBindings) {
 }
 
 export default app
+
+function normalizeEpisodeBriefs(
+  episodeBriefs: Array<{
+    episode: number
+    opening: string
+    ending: string
+    keyEvents: string[]
+    tokenCount: number
+    wordCount: number
+    emotionRaw: number
+    conflictExtRaw: number
+    conflictIntRaw: number
+    paywallFlag: boolean
+  }>,
+) {
+  const sorted = [...episodeBriefs].sort((a, b) => a.episode - b.episode)
+  const seen = new Set<number>()
+
+  for (const item of sorted) {
+    if (item.episode < 1)
+      throw new Error('episodeBriefs episode must be >= 1.')
+    if (seen.has(item.episode))
+      throw new Error(`Duplicate episodeBriefs episode: ${item.episode}.`)
+    seen.add(item.episode)
+  }
+
+  return sorted.map((item, index) => ({
+    ...item,
+    episode: index + 1,
+  }))
+}

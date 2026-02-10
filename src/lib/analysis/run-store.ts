@@ -11,15 +11,16 @@ interface RunIndexEntry {
   approxBytes: number
 }
 
-const INDEX_KEY = 'sdicap:runs:index'
-const LAST_RID_KEY = 'sdicap:runs:last'
+const STORAGE_PREFIX = 'sdicap:v2'
+const INDEX_KEY = `${STORAGE_PREFIX}:runs:index`
+const LAST_RID_KEY = `${STORAGE_PREFIX}:runs:last`
 
 function runKey(rid: string) {
-  return `sdicap:run:${rid}`
+  return `${STORAGE_PREFIX}:run:${rid}`
 }
 
 function runInputKey(rid: string) {
-  return `sdicap:run:${rid}:input`
+  return `${STORAGE_PREFIX}:run:${rid}:input`
 }
 
 interface RunStoreCache {
@@ -155,37 +156,19 @@ function isScoreGrade(value: unknown): value is 'S+' | 'S' | 'A+' | 'A' | 'B' | 
   return value === 'S+' || value === 'S' || value === 'A+' || value === 'A' || value === 'B' || value === 'C'
 }
 
-function isAuditItem(value: unknown) {
-  if (!isRecord(value))
-    return false
-  if (!isString(value.id))
-    return false
-  if (!isString(value.reason))
-    return false
-  if (!Array.isArray(value.evidence) || !value.evidence.every(isString))
-    return false
-  if (!isString(value.status))
-    return false
-  if (!isNumber(value.score) || !isNumber(value.max))
-    return false
-  return true
-}
-
 function isAnalysisScoreResult(value: unknown): value is NonNullable<StoredRun['score']> {
   if (!isRecord(value))
     return false
-  if (!isRecord(value.meta) || !isRecord(value.score) || !isRecord(value.audit))
+  if (!isRecord(value.meta) || !isRecord(value.score) || !isRecord(value.presentation))
     return false
 
   if (!isString(value.meta.rulesetVersion))
     return false
-  if (value.meta.benchmarkMode !== 'rule-only')
+  if (typeof value.meta.redlineHit !== 'boolean')
     return false
-  if (value.meta.noExternalDataset !== true)
+  if (!Array.isArray(value.meta.redlineEvidence) || !value.meta.redlineEvidence.every(isString))
     return false
-  if (value.meta.redlineHit != null && typeof value.meta.redlineHit !== 'boolean')
-    return false
-  if (value.meta.redlineEvidence != null && (!Array.isArray(value.meta.redlineEvidence) || !value.meta.redlineEvidence.every(isString)))
+  if (!isString(value.meta.generatedAt))
     return false
 
   if (!isNumber(value.score.total_110))
@@ -205,8 +188,49 @@ function isAnalysisScoreResult(value: unknown): value is NonNullable<StoredRun['
   if (!isNumber(value.score.breakdown_110.potential))
     return false
 
-  if (!Array.isArray(value.audit.items) || !value.audit.items.every(isAuditItem))
+  if (!isRecord(value.presentation.dimensionNarratives))
     return false
+  if (!isString(value.presentation.commercialSummary))
+    return false
+  if (!isString(value.presentation.dimensionNarratives.monetization))
+    return false
+  if (!isString(value.presentation.dimensionNarratives.story))
+    return false
+  if (!isString(value.presentation.dimensionNarratives.market))
+    return false
+  if (!isRecord(value.presentation.charts))
+    return false
+  if (!isRecord(value.presentation.charts.emotion) || !isRecord(value.presentation.charts.conflict))
+    return false
+  if (!Array.isArray(value.presentation.charts.emotion.series))
+    return false
+  if (!Array.isArray(value.presentation.charts.emotion.anchors) || value.presentation.charts.emotion.anchors.length !== 3)
+    return false
+  if (!isString(value.presentation.charts.emotion.caption))
+    return false
+  if (!Array.isArray(value.presentation.charts.conflict.phases) || value.presentation.charts.conflict.phases.length !== 6)
+    return false
+  if (!isString(value.presentation.charts.conflict.caption))
+    return false
+  if (!Array.isArray(value.presentation.episodeRows))
+    return false
+  if (!isRecord(value.presentation.diagnosis))
+    return false
+  if (!Array.isArray(value.presentation.diagnosis.matrix))
+    return false
+  if (!Array.isArray(value.presentation.diagnosis.details))
+    return false
+  if (!isRecord(value.presentation.diagnosis.overview))
+    return false
+  if (!isString(value.presentation.diagnosis.overview.integritySummary))
+    return false
+  if (!isNumber(value.presentation.diagnosis.overview.pacingFocusEpisode))
+    return false
+  if (!isString(value.presentation.diagnosis.overview.pacingIssueLabel))
+    return false
+  if (!isString(value.presentation.diagnosis.overview.pacingIssueReason))
+    return false
+
   return true
 }
 
@@ -219,11 +243,13 @@ export function asStoredRun(value: unknown): StoredRun | null {
     return null
   if (!isPreviewScore(value.previewScore))
     return null
+  if (!isAnalysisScoreResult(value.score))
+    return null
   return {
     meta: value.meta,
     l1: value.l1,
     previewScore: value.previewScore,
-    score: isAnalysisScoreResult(value.score) ? value.score : undefined,
+    score: value.score,
   }
 }
 

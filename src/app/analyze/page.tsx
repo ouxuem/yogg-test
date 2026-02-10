@@ -15,10 +15,17 @@ const PREFLIGHT_ERRORS_KEY = 'sdicap:preflight_errors'
 const DEFAULT_SCORE_API_ORIGIN = 'https://worker.1143434456qq.workers.dev'
 
 interface ScoreApiRequest {
-  episodes: Array<{
-    number: number
-    text: string
-    paywallCount: number
+  episodeBriefs: Array<{
+    episode: number
+    opening: string
+    ending: string
+    keyEvents: string[]
+    tokenCount: number
+    wordCount: number
+    emotionRaw: number
+    conflictExtRaw: number
+    conflictIntRaw: number
+    paywallFlag: boolean
   }>
   ingest: {
     declaredTotalEpisodes?: number
@@ -31,7 +38,6 @@ interface ScoreApiRequest {
   }
   language: 'en' | 'zh'
   tokenizer: 'whitespace' | 'intl-segmenter' | 'char-fallback'
-  totalWordsFromL1: number
 }
 
 interface PreparedPayload {
@@ -211,15 +217,13 @@ function isPreparedPayload(value: unknown): value is PreparedPayload {
 function isScoreApiRequest(value: unknown): value is ScoreApiRequest {
   if (!isRecord(value))
     return false
-  if (!Array.isArray(value.episodes))
+  if (!Array.isArray(value.episodeBriefs))
     return false
   if (!isRecord(value.ingest))
     return false
   if (value.language !== 'en' && value.language !== 'zh')
     return false
   if (value.tokenizer !== 'whitespace' && value.tokenizer !== 'intl-segmenter' && value.tokenizer !== 'char-fallback')
-    return false
-  if (typeof value.totalWordsFromL1 !== 'number')
     return false
   return true
 }
@@ -282,9 +286,25 @@ function isAnalysisScoreResult(value: unknown): value is AnalysisScoreResult {
     return false
   if (!isRecord(value.score))
     return false
-  if (!isRecord(value.audit))
+  if (!isRecord(value.presentation))
     return false
-  if (!Array.isArray(value.audit.items))
+  if (!isRecord(value.presentation.dimensionNarratives))
+    return false
+  if (!isRecord(value.presentation.charts))
+    return false
+  if (!isRecord(value.presentation.charts.emotion))
+    return false
+  if (!isRecord(value.presentation.charts.conflict))
+    return false
+  if (!Array.isArray(value.presentation.episodeRows))
+    return false
+  if (!isRecord(value.presentation.diagnosis))
+    return false
+  if (!Array.isArray(value.presentation.diagnosis.matrix))
+    return false
+  if (!Array.isArray(value.presentation.diagnosis.details))
+    return false
+  if (!isRecord(value.presentation.diagnosis.overview))
     return false
   return true
 }

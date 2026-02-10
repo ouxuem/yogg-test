@@ -45,5 +45,5 @@ export interface AnalysisResult {
   }
   previewScore: PreviewScore
   progress?: AnalysisProgress
-  score?: AnalysisScoreResult
+  score: AnalysisScoreResult
 }

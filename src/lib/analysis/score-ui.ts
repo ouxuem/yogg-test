@@ -265,15 +265,50 @@ export function buildIssueReasonByEpisode(items: AuditItem[]) {
   return byEpisode
 }
 
-export function buildDimensionInsight(items: AuditItem[], prefix: 'pay.' | 'story.' | 'market.', okFallback: string) {
+function scoreGap(item: AuditItem) {
+  return item.max - item.score
+}
+
+function scoreRatio(item: AuditItem) {
+  if (item.max <= 0)
+    return 0
+  return item.score / item.max
+}
+
+export function buildDimensionInsight(
+  items: AuditItem[],
+  prefix: 'pay.' | 'story.' | 'market.',
+  emptyFallback = 'No AI evidence available for this dimension.',
+) {
   const scoped = items
     .filter(item => item.id.startsWith(prefix))
-    .sort((a, b) => (b.max - b.score) - (a.max - a.score))
-  const weakest = scoped[0]
-  if (weakest == null || weakest.max - weakest.score <= 0.01)
-    return okFallback
+  if (scoped.length === 0)
+    return emptyFallback
+
+  const weakest = [...scoped].sort((a, b) => scoreGap(b) - scoreGap(a))[0]
+  if (weakest != null && scoreGap(weakest) > 0.01) {
+    const label = labelForAuditItem(weakest.id)
+    return `${label}: ${compactReason(weakest.reason)}`
+  }
+
+  const strongest = [...scoped].sort((a, b) => scoreRatio(b) - scoreRatio(a))[0]
+  if (strongest == null)
+    return emptyFallback
+  const label = labelForAuditItem(strongest.id)
+  return `${label}: ${compactReason(strongest.reason)}`
+}
+
+export function buildCommercialAdaptabilitySummary(items: AuditItem[], overall100: number, grade: string) {
+  const scoped = items.filter(item => item.id.startsWith('pay.') || item.id.startsWith('story.') || item.id.startsWith('market.'))
+  if (scoped.length === 0)
+    return `AI summary unavailable for this run. Overall ${overall100}/100 (${grade}).`
+
+  const weakest = [...scoped].sort((a, b) => scoreGap(b) - scoreGap(a))[0]
+  if (weakest == null)
+    return `Overall ${overall100}/100 (${grade}).`
+
   const label = labelForAuditItem(weakest.id)
-  return `${label}: ${compactReason(weakest.reason)}`
+  return `Overall ${overall100}/100 (${grade}). Focus next on ${label.toLowerCase()}: ${compactReason(weakest.reason, 100)}`
 }
 
 export function classifyIssueCategory(id: string): 'structure' | 'pacing' {

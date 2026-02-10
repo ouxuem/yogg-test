@@ -1,69 +1,26 @@
 import type { AnalysisLanguage, AnalysisTokenizer } from './detect-language'
-import type { ParsedEpisode, ParseIngest } from './input-types'
-import type { MarketPotentialPromptInput, OpeningPromptInputEnhanced, PaywallHooksPromptInput, StoryPromptInputEnhanced } from './score-ai-prompts'
-import type {
-  MarketPotentialAssessment,
-  OpeningAssessment,
-  PaywallHooksAssessment,
-  StoryAssessment,
-} from './score-ai-schemas'
-import type { AnalysisScoreResult, AuditItem } from './score-types'
-import type { EpisodeWindows } from './window-builder'
+import type { EpisodeBrief, ParseIngest } from './input-types'
+import type { EpisodePassItem, GlobalSummary } from './score-ai-schemas'
+import type { AnalysisScoreResult, PresentationPayload } from './score-types'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { generateText, Output } from 'ai'
 import { assertEnglishStructuredOutput } from './ai-language-guard'
-import {
-  buildMarketPotentialPrompt,
-  buildOpeningPrompt,
-  buildPaywallHooksPrompt,
-  buildStoryPrompt,
-
-} from './score-ai-prompts'
-import {
-  MarketPotentialAssessmentSchema,
-  OpeningAssessmentSchema,
-  PaywallHooksAssessmentSchema,
-  StoryAssessmentSchema,
-} from './score-ai-schemas'
-import {
-  collectMatchedTerms,
-  countTerms,
-  detectGenre,
-  makeAuditItem,
-  secondaryPaywallRange,
-} from './score-evaluator-helpers'
-import { pickKeywords, SCORING_KEYWORDS } from './score-keywords'
-import {
-  aggregateScores,
-  applyRedlineOverride,
-  toAnalysisScoreResult,
-} from './score-types'
+import { buildEpisodePassPrompt, buildGlobalPassPrompt } from './score-ai-prompts'
+import { EpisodePassSchema, GlobalSummarySchema, PresentationSchema } from './score-ai-schemas'
+import { aggregateScores, applyRedlineOverride, toAnalysisScoreResult } from './score-types'
 
 interface EvaluateAiScoreInput {
   env: ScoreRuntimeEnv
-  episodes: ParsedEpisode[]
-  windows: EpisodeWindows[]
+  episodeBriefs: EpisodeBrief[]
+  ingest: ParseIngest
   language: AnalysisLanguage
   tokenizer: AnalysisTokenizer
-  totalWordsFromL1: number
-  ingest?: ParseIngest
   onProgress?: (update: { completed: number, total: number, label: string }) => void
-}
-
-interface AiCallContext {
-  episodeMap: Map<number, ParsedEpisode>
-  windowMap: Map<number, EpisodeWindows>
-  language: AnalysisLanguage
-  totalEpisodesForScoring: number
-  observedEpisodeCount: number
-  declaredTotalEpisodes?: number
-  inferredTotalEpisodes: number
-  completionState: 'completed' | 'incomplete' | 'unknown'
-  fullScript: string
 }
 
 const DEFAULT_ENDPOINT = 'https://llm-api.dev.zenai.cc/v1'
 const DEFAULT_MODEL = 'gemini-3-pro'
+const MAX_EPISODES = 120
 
 export interface ScoreRuntimeEnv {
   ZENAI_LLM_API_KEY?: string
@@ -72,65 +29,65 @@ export interface ScoreRuntimeEnv {
 }
 
 /**
- * AI 评分主入口 - AI-Centric版本
- * - 4个L2调用并行：OPENING, PAYWALL_HOOKS, STORY, MARKET_POTENTIAL
- * - 减少L1干预，让AI直接理解文本
- * - 单调用失败时抛出错误
+ * ============================================================================
+ * 双阶段 AI 评分主入口
+ * - Call 1: episode pass（逐集结构化）
+ * - Call 2: global pass（全局文案）
+ * - 数值评分: 后端确定性计算（防漂移）
+ * ============================================================================
  */
 export async function evaluateAiScore(input: EvaluateAiScoreInput): Promise<AnalysisScoreResult> {
-  const observedEpisodeCount = input.ingest?.observedEpisodeCount ?? input.episodes.length
-  const inferredTotalEpisodes = input.ingest?.inferredTotalEpisodes ?? observedEpisodeCount
-  const totalEpisodesForScoring
-    = input.ingest?.totalEpisodesForScoring
-      ?? input.ingest?.declaredTotalEpisodes
-      ?? inferredTotalEpisodes
-  const completionState = input.ingest?.completionState ?? 'unknown'
-
-  const context: AiCallContext = {
-    episodeMap: new Map(input.episodes.map(ep => [ep.number, ep])),
-    windowMap: new Map(input.windows.map(window => [window.episode, window])),
-    language: input.language,
-    totalEpisodesForScoring,
-    observedEpisodeCount,
-    declaredTotalEpisodes: input.ingest?.declaredTotalEpisodes,
-    inferredTotalEpisodes,
-    completionState,
-    fullScript: input.episodes.map(ep => ep.text).join('\n'),
-  }
+  validateEpisodeBriefs(input.episodeBriefs)
 
   const client = createStructuredClient(input.env)
-  const marketSignals = buildDeterministicMarketSignals(context)
 
   let completed = 0
-  const total = 4
+  const total = 2
   const updateProgress = (label: string) => {
     completed += 1
     input.onProgress?.({ completed, total, label })
   }
 
-  const [openingResult, paywallHooksResult, storyResult, marketPotentialResult] = await Promise.all([
-    runOpeningCall(context, client).finally(() => updateProgress('L2_OPENING')),
-    runPaywallHooksCall(context, client).finally(() => updateProgress('L2_PAYWALL_HOOKS')),
-    runStoryCall(context, client).finally(() => updateProgress('L2_STORY')),
-    runMarketPotentialCall(context, marketSignals, client, input.totalWordsFromL1).finally(() => updateProgress('L2_MARKET_POTENTIAL')),
-  ])
+  const episodePassRaw = await runEpisodePassCall(input.episodeBriefs, client)
+    .finally(() => updateProgress('L2_EPISODE_PASS'))
 
-  const auditItems = [
-    ...mapOpeningOutput(openingResult),
-    ...mapPaywallHooksOutput(paywallHooksResult),
-    ...mapStoryOutput(storyResult),
-    ...mapMarketPotentialOutput(marketPotentialResult, marketSignals),
-  ]
+  const episodePass = normalizeEpisodePass(episodePassRaw.episodes, input.episodeBriefs)
+  const baseBreakdown = computeDeterministicBreakdown(input.episodeBriefs, episodePass)
 
-  const breakdown = aggregateScores(auditItems)
-  const finalBreakdown = applyRedlineOverride(breakdown, marketSignals.redlineHit)
+  const globalSummary = await runGlobalPassCall(
+    episodePass,
+    {
+      pay: baseBreakdown.pay,
+      story: baseBreakdown.story,
+      market: baseBreakdown.market,
+      potential: baseBreakdown.potential,
+      overall100: baseBreakdown.overall100,
+      grade: baseBreakdown.grade,
+    },
+    client,
+  ).finally(() => updateProgress('L2_GLOBAL_PASS'))
 
-  return toAnalysisScoreResult(
-    auditItems,
-    finalBreakdown,
-    marketSignals.redlineHit,
-    marketSignals.redlineEvidence,
-  )
+  const redlineEvidence = detectRedlineEvidence(input.episodeBriefs)
+  const redlineHit = redlineEvidence.length > 0
+  const finalBreakdown = applyRedlineOverride(baseBreakdown, redlineHit)
+
+  const presentation = buildPresentationPayload({
+    episodeBriefs: input.episodeBriefs,
+    episodePass,
+    globalSummary,
+  })
+
+  // 强校验：MVP 不兼容旧数据，结构不合法直接失败。
+  const parsedPresentation = PresentationSchema.safeParse(presentation)
+  if (!parsedPresentation.success)
+    throw new Error(`Invalid presentation payload: ${parsedPresentation.error.issues[0]?.message ?? 'unknown error'}`)
+
+  return toAnalysisScoreResult({
+    breakdown: finalBreakdown,
+    redlineHit,
+    redlineEvidence,
+    presentation: parsedPresentation.data,
+  })
 }
 
 function createStructuredClient(env: ScoreRuntimeEnv) {
@@ -148,6 +105,7 @@ function createStructuredClient(env: ScoreRuntimeEnv) {
 
   return async function callObject<T>(label: string, schema: import('zod').ZodType<T>, prompt: string): Promise<T> {
     let lastError: unknown = null
+
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const { output } = await generateText({
@@ -159,8 +117,10 @@ function createStructuredClient(env: ScoreRuntimeEnv) {
             zenai: { reasoningEffort: 'high' },
           },
         })
+
         if (output == null)
           throw new Error(`${label}: empty output`)
+
         assertEnglishStructuredOutput(output)
         return output
       }
@@ -168,378 +128,352 @@ function createStructuredClient(env: ScoreRuntimeEnv) {
         lastError = error
       }
     }
+
     throw new Error(`${label} failed after retries: ${toErrorMessage(lastError)}`)
   }
 }
 
-async function runOpeningCall(
-  context: AiCallContext,
+async function runEpisodePassCall(
+  episodeBriefs: EpisodeBrief[],
   callObject: ReturnType<typeof createStructuredClient>,
 ) {
-  const promptInput: OpeningPromptInputEnhanced = {
-    ep1Full: context.episodeMap.get(1)?.text ?? '',
-    ep2Full: context.episodeMap.get(2)?.text ?? '',
-    ep3Full: context.episodeMap.get(3)?.text ?? '',
-    ep1Head: context.windowMap.get(1)?.head_500w ?? '',
-    ep2Head: context.windowMap.get(2)?.head_500w ?? '',
-    ep3Head: context.windowMap.get(3)?.head_500w ?? '',
-  }
-
-  const output = await callObject(
-    'L2_OPENING',
-    OpeningAssessmentSchema,
-    buildOpeningPrompt(promptInput),
-  )
-  return output
+  return callObject('L2_EPISODE_PASS', EpisodePassSchema, buildEpisodePassPrompt(episodeBriefs))
 }
 
-async function runPaywallHooksCall(
-  context: AiCallContext,
+async function runGlobalPassCall(
+  episodePass: EpisodePassItem[],
+  numericScoreParts: {
+    pay: number
+    story: number
+    market: number
+    potential: number
+    overall100: number
+    grade: string
+  },
   callObject: ReturnType<typeof createStructuredClient>,
 ) {
-  const detectedPaywall1 = findPaywallEpisodes(context.episodeMap)[0]
-  const firstPaywall = detectedPaywall1 ?? inferPaywallEpisode(context.totalEpisodesForScoring)
+  return callObject(
+    'L2_GLOBAL_PASS',
+    GlobalSummarySchema,
+    buildGlobalPassPrompt({ episodePass, numericScoreParts }),
+  )
+}
 
-  const hasSecondPaywall = context.totalEpisodesForScoring >= 30
-  const range2 = secondaryPaywallRange(context.totalEpisodesForScoring)
-  const detectedPaywall2 = findPaywallEpisodes(context.episodeMap)[1]
-  const secondPaywall = hasSecondPaywall
-    ? (detectedPaywall2 ?? (range2 ? inferSecondaryPaywall(range2) : undefined))
-    : undefined
+function validateEpisodeBriefs(episodeBriefs: EpisodeBrief[]) {
+  if (episodeBriefs.length === 0)
+    throw new Error('episodeBriefs must contain at least 1 episode.')
+  if (episodeBriefs.length > MAX_EPISODES)
+    throw new Error(`episodeBriefs exceeds limit (${MAX_EPISODES}).`)
 
-  const promptInput: PaywallHooksPromptInput = {
-    firstPaywallEpisode: firstPaywall,
-    totalEpisodes: context.totalEpisodesForScoring,
-    previousEpisode1Text: context.episodeMap.get(firstPaywall - 1)?.text ?? '',
-    paywall1Pre: context.windowMap.get(firstPaywall)?.paywall_pre_context_1000t ?? '',
-    paywall1Post: context.windowMap.get(firstPaywall)?.paywall_post_context_400t ?? '',
-    nextEpisode1Head: (context.episodeMap.get(firstPaywall + 1)?.text ?? '').slice(0, 1500),
-    episodesForAnalysis1: buildEpisodesForPaywallAnalysis(context.episodeMap, 2, 17),
-    detectedPaywall1: detectedPaywall1 ?? null,
+  const seen = new Set<number>()
+  for (const brief of episodeBriefs) {
+    if (seen.has(brief.episode))
+      throw new Error(`episodeBriefs contains duplicate episode ${brief.episode}.`)
+    seen.add(brief.episode)
 
-    hasSecondPaywall: hasSecondPaywall && secondPaywall != null,
-    secondPaywallEpisode: secondPaywall,
-    validRange2: range2 ?? undefined,
-    previousEpisode2Text: secondPaywall != null ? context.episodeMap.get(secondPaywall - 1)?.text : undefined,
-    paywall2Pre: secondPaywall != null ? context.windowMap.get(secondPaywall)?.paywall_pre_context_1000t : undefined,
-    paywall2Post: secondPaywall != null ? context.windowMap.get(secondPaywall)?.paywall_post_context_400t : undefined,
-    nextEpisode2Head: secondPaywall != null ? (context.episodeMap.get(secondPaywall + 1)?.text ?? '').slice(0, 1400) : undefined,
-    episodesForAnalysis2: hasSecondPaywall && range2
-      ? buildEpisodesForPaywallAnalysis(context.episodeMap, range2[0], range2[1])
-      : undefined,
-    detectedPaywall2: detectedPaywall2 ?? null,
+    if (brief.episode < 1)
+      throw new Error('episode number must be >= 1.')
 
-    ep2Tail: (context.episodeMap.get(2)?.text ?? '').slice(-220),
-    ep4Tail: (context.episodeMap.get(4)?.text ?? '').slice(-220),
-    ep8Tail: (context.episodeMap.get(8)?.text ?? '').slice(-220),
-    ep10Tail: (context.episodeMap.get(10)?.text ?? '').slice(-220),
+    if (brief.opening.trim().length === 0 || brief.ending.trim().length === 0)
+      throw new Error(`episode ${brief.episode} has empty opening or ending.`)
 
-    first12Text: collectEpisodes(context.episodeMap, 1, 12),
-    first5Text: collectEpisodes(context.episodeMap, 1, 5),
-    first3Text: collectEpisodes(context.episodeMap, 1, 3),
+    if (brief.keyEvents.length < 3 || brief.keyEvents.length > 6)
+      throw new Error(`episode ${brief.episode} keyEvents must contain 3-6 items.`)
   }
 
-  const output = await callObject(
-    'L2_PAYWALL_HOOKS',
-    PaywallHooksAssessmentSchema,
-    buildPaywallHooksPrompt(promptInput),
-  )
-  return output
+  const sorted = [...episodeBriefs].sort((a, b) => a.episode - b.episode)
+  for (let i = 0; i < sorted.length; i++) {
+    const expected = i + 1
+    if (sorted[i]?.episode !== expected)
+      throw new Error('episodeBriefs must be continuous from 1..N without gaps.')
+  }
 }
 
-async function runStoryCall(
-  context: AiCallContext,
-  callObject: ReturnType<typeof createStructuredClient>,
-) {
-  const midEpisode = Math.ceil(context.totalEpisodesForScoring / 2)
-
-  const promptInput: StoryPromptInputEnhanced = {
-    ep1Sample: context.episodeMap.get(1)?.text ?? '',
-    epMidSample: context.episodeMap.get(midEpisode)?.text ?? '',
-    epEndSample: context.episodeMap.get(context.totalEpisodesForScoring)?.text ?? '',
-    protagonistDialogue: buildCharacterSamples(context.episodeMap, context.totalEpisodesForScoring),
-    antagonistDialogue: buildAntagonistSamples(context.episodeMap, context.totalEpisodesForScoring),
-    emotionScenes: buildEmotionSamples(context.episodeMap, context.totalEpisodesForScoring),
-    conflictScenes: buildConflictSamples(context.episodeMap, context.totalEpisodesForScoring),
-    totalEpisodes: context.totalEpisodesForScoring,
+function normalizeEpisodePass(items: EpisodePassItem[], episodeBriefs: EpisodeBrief[]) {
+  const byEpisode = new Map<number, EpisodePassItem>()
+  for (const item of items) {
+    if (!byEpisode.has(item.episode))
+      byEpisode.set(item.episode, item)
   }
 
-  const output = await callObject(
-    'L2_STORY',
-    StoryAssessmentSchema,
-    buildStoryPrompt(promptInput),
-  )
-  return output
-}
+  const normalized: EpisodePassItem[] = []
+  for (const brief of episodeBriefs) {
+    const matched = byEpisode.get(brief.episode)
+    if (matched == null)
+      throw new Error(`Episode pass missing episode ${brief.episode}.`)
 
-async function runMarketPotentialCall(
-  context: AiCallContext,
-  signals: DeterministicMarketSignals,
-  callObject: ReturnType<typeof createStructuredClient>,
-  _totalWordsFromL1: number,
-) {
-  const payScore = 0
-  const storyScore = 0
-  const marketScore = 0
-  const total110 = payScore + storyScore + marketScore
-
-  const promptInput: MarketPotentialPromptInput = {
-    mechanismSamples: buildMechanismSamples(context.episodeMap, context.totalEpisodesForScoring),
-    audienceSamples: buildAudienceSamples(context.episodeMap, context.totalEpisodesForScoring),
-    detectedGenre: detectGenre(context.fullScript, context.language),
-    totalEpisodes: context.totalEpisodesForScoring,
-    localizationCount: signals.localizationCount,
-
-    payScore,
-    storyScore,
-    marketScore,
-    total110,
-    issueLines: '- none',
-    recoverable: 0,
-    coreDriverScore: 0,
-    characterScore: 0,
+    normalized.push({
+      ...matched,
+      primaryHookType: sanitizeHookType(matched.primaryHookType),
+      aiHighlight: compactText(matched.aiHighlight, 220),
+      issueLabel: compactText(matched.issueLabel, 72),
+      issueReason: compactText(matched.issueReason, 240),
+      suggestion: compactText(matched.suggestion, 240),
+      pacingScore: round1(clamp(matched.pacingScore, 0, 10)),
+      signalPercent: Math.round(clamp(matched.signalPercent, 0, 100)),
+    })
   }
 
-  const output = await callObject(
-    'L2_MARKET_POTENTIAL',
-    MarketPotentialAssessmentSchema,
-    buildMarketPotentialPrompt(promptInput),
-  )
-  return output
+  return normalized
 }
 
-function mapOpeningOutput(output: OpeningAssessment): AuditItem[] {
-  return [
-    makeAuditItem(
-      'pay.opening.male_lead',
-      output.maleLead.score,
-      5,
-      output.maleLead.reasoning,
-      [...output.maleLead.visualTagsFound, ...output.maleLead.personaTagsFound],
-    ),
-    makeAuditItem(
-      'pay.opening.female_lead',
-      output.femaleLead.score,
-      5,
-      output.femaleLead.reasoning,
-      [output.femaleLead.conflictEvidence, output.femaleLead.motivationEvidence].filter(Boolean) as string[],
-    ),
-  ]
+function computeDeterministicBreakdown(episodeBriefs: EpisodeBrief[], episodePass: EpisodePassItem[]) {
+  const count = episodeBriefs.length
+  const avgEmotion = mean(episodeBriefs.map(item => item.emotionRaw))
+  const avgConflictExt = mean(episodeBriefs.map(item => item.conflictExtRaw))
+  const avgConflictInt = mean(episodeBriefs.map(item => item.conflictIntRaw))
+  const avgConflict = avgConflictExt + avgConflictInt
+  const paywallCount = episodeBriefs.filter(item => item.paywallFlag).length
+  const eventDensity = mean(episodeBriefs.map(item => item.keyEvents.length))
+
+  const hookCoverage = ratio(episodePass, item => sanitizeHookType(item.primaryHookType) !== 'None')
+  const peakRatio = ratio(episodePass, item => item.health === 'PEAK')
+  const issueRatio = ratio(episodePass, item => item.state === 'issue')
+  const neutralRatio = ratio(episodePass, item => item.state === 'neutral')
+  const avgSignalPercent = mean(episodePass.map(item => item.signalPercent))
+
+  const conflictBalance = 1 - (Math.abs(avgConflictExt - avgConflictInt) / Math.max(1, avgConflict))
+  const paywallScore = clamp(paywallCount / Math.max(1, Math.min(2, Math.ceil(count / 20))), 0, 1)
+
+  const pay = 12
+    + paywallScore * 12
+    + normalizeRange(avgConflict, 0, 8) * 8
+    + hookCoverage * 14
+    + peakRatio * 4
+
+  const story = 7
+    + normalizeRange(avgEmotion, 0, 9) * 8
+    + normalizeRange(avgSignalPercent, 0, 100) * 9
+    + (1 - issueRatio) * 4
+    + (1 - neutralRatio) * 2
+
+  const market = 5
+    + normalizeRange(eventDensity, 1, 6) * 6
+    + conflictBalance * 5
+    + (1 - issueRatio) * 4
+
+  const potential = 2
+    + (1 - issueRatio) * 3
+    + hookCoverage * 2
+    + (1 - normalizeRange(avgSignalPercent, 0, 100)) * 2
+    + (paywallCount > 0 ? 1 : 0)
+
+  return aggregateScores({ pay, story, market, potential })
 }
 
-function mapPaywallHooksOutput(output: PaywallHooksAssessment): AuditItem[] {
-  const items: AuditItem[] = [
-    makeAuditItem('pay.paywall.primary.position', output.firstPaywall.position.score, 2, output.firstPaywall.position.reasoning, [
-      output.firstPaywall.position.validRange ?? 'N/A',
-      `episode=${output.firstPaywall.position.episode}`,
-    ]),
-    makeAuditItem('pay.paywall.primary.previous', output.firstPaywall.previousEpisode.score, 4, output.firstPaywall.previousEpisode.reasoning, [
-      ...output.firstPaywall.previousEpisode.plotEvidence,
-      ...output.firstPaywall.previousEpisode.emotionEvidence,
-      ...output.firstPaywall.previousEpisode.foreshadowEvidence,
-    ]),
-    makeAuditItem('pay.paywall.primary.hook', output.firstPaywall.hookStrength.score, 5, output.firstPaywall.hookStrength.reasoning, [output.firstPaywall.hookStrength.hookEvidence ?? '']),
-    makeAuditItem('pay.paywall.primary.next', output.firstPaywall.nextEpisode.score, 3, output.firstPaywall.nextEpisode.reasoning, []),
-  ]
+function buildPresentationPayload(input: {
+  episodeBriefs: EpisodeBrief[]
+  episodePass: EpisodePassItem[]
+  globalSummary: GlobalSummary
+}): PresentationPayload {
+  const emotionSeries = buildEmotionSeries(input.episodeBriefs)
+  const conflictPhases = buildConflictPhases(input.episodeBriefs)
 
-  if (output.secondPaywall.isApplicable) {
-    const hookScore = output.secondPaywall.hookStrength.hasEscalation
-      ? output.secondPaywall.hookStrength.score
-      : Math.min(output.secondPaywall.hookStrength.score, 1)
+  const episodeRows = input.episodePass.map(item => ({
+    episode: item.episode,
+    health: item.health,
+    primaryHookType: sanitizeHookType(item.primaryHookType),
+    aiHighlight: compactText(item.aiHighlight, 240),
+  }))
 
-    items.push(
-      makeAuditItem('pay.paywall.secondary.position', output.secondPaywall.position.score, 2, output.secondPaywall.position.reasoning, [
-        output.secondPaywall.position.validRange ?? 'N/A',
-        `episode=${output.secondPaywall.position.episode}`,
-      ]),
-      makeAuditItem('pay.paywall.secondary.previous', output.secondPaywall.previousEpisode.score, 3, output.secondPaywall.previousEpisode.reasoning, []),
-      makeAuditItem('pay.paywall.secondary.hook', hookScore, 3, output.secondPaywall.hookStrength.reasoning, [output.secondPaywall.hookStrength.escalationEvidence ?? ''].filter(Boolean)),
-      makeAuditItem('pay.paywall.secondary.next', output.secondPaywall.nextEpisode.score, 2, output.secondPaywall.nextEpisode.reasoning, []),
-    )
-  }
+  const diagnosisMatrix = input.episodePass.map(item => ({
+    episode: item.episode,
+    state: item.state,
+  }))
 
-  const available = [2, 4, 8, 10].filter(ep => ep <= output.episodicHooks.ep10.score + 10)
-  const rawSum = output.episodicHooks.ep2.score + output.episodicHooks.ep4.score
-    + output.episodicHooks.ep8.score + output.episodicHooks.ep10.score
-  const normalized = available.length === 0 ? 0 : (rawSum / available.length) * 4
-  const episodicScore = Math.min(normalized, 7)
+  const diagnosisDetails = input.episodePass
+    .filter(item => item.state !== 'optimal')
+    .map(item => ({
+      episode: item.episode,
+      issueCategory: item.issueCategory,
+      issueLabel: compactText(item.issueLabel, 72),
+      issueReason: compactText(item.issueReason, 240),
+      suggestion: compactText(item.suggestion, 240),
+      hookType: sanitizeHookType(item.primaryHookType),
+      emotionLevel: item.emotionLevel,
+      conflictDensity: item.conflictDensity,
+      pacingScore: round1(clamp(item.pacingScore, 0, 10)),
+      signalPercent: Math.round(clamp(item.signalPercent, 0, 100)),
+    }))
 
-  items.push(
-    makeAuditItem('pay.hooks.episodic', episodicScore, 7, output.episodicHooks.reasoning, [], episodicScore >= 4 ? 'ok' : 'warn', available.length < 3 ? 'low_sample' : 'normal'),
-    makeAuditItem('pay.density.drama', output.density.dramaEvents.score, 2.5, output.density.dramaEvents.reasoning, output.density.dramaEvents.events),
-    makeAuditItem('pay.density.motivation', output.density.motivationClarity.score, 2, output.density.motivationClarity.reasoning, []),
-    makeAuditItem('pay.density.foreshadow', output.density.foreshadowing.score, 2.5, output.density.foreshadowing.reasoning, []),
-    makeAuditItem('pay.visual_hammer', output.visualHammer.score, 2, output.visualHammer.reasoning, [`total=${output.visualHammer.totalScenes}`, `first3=${output.visualHammer.first3Scenes}`]),
-  )
-
-  return items
-}
-
-function mapStoryOutput(output: StoryAssessment): AuditItem[] {
-  return [
-    makeAuditItem('story.core_driver', output.coreDriver.score, 10, output.coreDriver.reasoning, [`relationship=${output.coreDriver.relationshipPercentage.toFixed(1)}%`]),
-    makeAuditItem('story.character.male', output.characterRecognition.maleLead.score, 4, output.characterRecognition.maleLead.reasoning, output.characterRecognition.maleLead.tagsFound),
-    makeAuditItem('story.character.female', output.characterRecognition.femaleLead.score, 6, output.characterRecognition.femaleLead.reasoning, output.characterRecognition.femaleLead.tagsFound),
-    makeAuditItem('story.emotion_density', output.emotionDensity.score, 6, output.emotionDensity.reasoning, [`density=${output.emotionDensity.densityPercentage.toFixed(2)}%`]),
-    makeAuditItem('story.conflict', output.conflictTwist.conflictScore, 2.5, output.conflictTwist.reasoning, []),
-    makeAuditItem('story.twist', output.conflictTwist.twistScore, 1.5, output.conflictTwist.reasoning, [`majorTwists=${output.conflictTwist.majorTwistCount}`]),
-  ]
-}
-
-function mapMarketPotentialOutput(
-  output: MarketPotentialAssessment,
-  signals: DeterministicMarketSignals,
-): AuditItem[] {
-  return [
-    makeAuditItem('market.benchmark', output.market.benchmark.score, 5, output.market.benchmark.reasoning, output.market.benchmark.mechanisms.map(m => m.name)),
-    makeAuditItem('market.taboo', signals.tabooItem.score, 5, signals.tabooItem.reason, signals.tabooItem.evidence, signals.redlineHit ? 'fail' : 'ok'),
-    makeAuditItem('market.localization', output.market.localization.score, 5, output.market.localization.reasoning, output.market.localization.elementsFound),
-    makeAuditItem('market.audience.genre', output.market.audienceMatch.genreAudienceScore, 3, output.market.audienceMatch.reasoning, output.market.audienceMatch.inappropriateElements),
-    makeAuditItem('market.audience.purity', output.market.audienceMatch.audiencePurityScore, 2, output.market.audienceMatch.reasoning, []),
-    makeAuditItem('potential.repair_cost', output.potential.repairCost.score, 3, output.potential.repairCost.reasoning, [output.potential.repairCost.estimatedHours, output.potential.repairCost.primaryIssueType]),
-    makeAuditItem('potential.expected_gain', output.potential.expectedGain.score, 3, output.potential.expectedGain.reasoning, [`recoverable=${output.potential.expectedGain.recoverablePoints.toFixed(2)}`]),
-    makeAuditItem('potential.story_core', output.potential.storyCore.score, 3, output.potential.storyCore.reasoning, [`storyPercent=${output.potential.storyCore.storyDimensionPercent.toFixed(2)}`]),
-    makeAuditItem('potential.scarcity', output.potential.scarcity.score, 1, output.potential.scarcity.reasoning, ['benchmarkMode=rule-only']),
-  ]
-}
-
-function buildDeterministicMarketSignals(context: AiCallContext) {
-  const redlineEvidence = collectMatchedTerms(
-    context.fullScript,
-    pickKeywords(SCORING_KEYWORDS.market.redline, context.language),
-    context.language,
-  )
-  const redlineHit = redlineEvidence.length > 0
-  const vulgarCount = countTerms(
-    context.fullScript,
-    pickKeywords(SCORING_KEYWORDS.market.vulgar, context.language),
-    context.language,
-  )
-  const vulgarPenalty = Math.min(2, vulgarCount * 0.05)
-
-  const tabooItem = makeAuditItem(
-    'market.taboo',
-    redlineHit ? 0 : Math.max(0, 5 - vulgarPenalty),
-    5,
-    redlineHit ? 'Redline term detected.' : `Vulgar terms detected: ${vulgarCount}.`,
-    redlineEvidence,
-    redlineHit ? 'fail' : 'ok',
-  )
-
-  const localizationCount = countTerms(
-    context.fullScript,
-    pickKeywords(SCORING_KEYWORDS.market.localization, context.language),
-    context.language,
+  const pacingEpisode = clampEpisode(
+    input.globalSummary.diagnosisOverview.pacingFocusEpisode,
+    input.episodeBriefs.length,
   )
 
   return {
-    tabooItem,
-    redlineHit,
-    redlineEvidence,
-    vulgarCount,
-    vulgarPenalty,
-    localizationCount,
+    commercialSummary: compactText(input.globalSummary.commercialSummary, 280),
+    dimensionNarratives: {
+      monetization: compactText(input.globalSummary.dimensionNarratives.monetization, 220),
+      story: compactText(input.globalSummary.dimensionNarratives.story, 220),
+      market: compactText(input.globalSummary.dimensionNarratives.market, 220),
+    },
+    charts: {
+      emotion: {
+        series: emotionSeries,
+        anchors: buildEmotionAnchors(emotionSeries),
+        caption: compactText(input.globalSummary.chartCaptions.emotion, 200),
+      },
+      conflict: {
+        phases: conflictPhases,
+        caption: compactText(input.globalSummary.chartCaptions.conflict, 200),
+      },
+    },
+    episodeRows,
+    diagnosis: {
+      matrix: diagnosisMatrix,
+      details: diagnosisDetails,
+      overview: {
+        integritySummary: compactText(input.globalSummary.diagnosisOverview.integritySummary, 260),
+        pacingFocusEpisode: pacingEpisode,
+        pacingIssueLabel: compactText(input.globalSummary.diagnosisOverview.pacingIssueLabel, 72),
+        pacingIssueReason: compactText(input.globalSummary.diagnosisOverview.pacingIssueReason, 220),
+      },
+    },
   }
 }
 
-function inferPaywallEpisode(totalEpisodes: number): number {
-  if (totalEpisodes <= 15)
-    return Math.min(7, totalEpisodes - 1)
-  if (totalEpisodes <= 30)
-    return Math.min(10, totalEpisodes - 1)
-  if (totalEpisodes <= 50)
-    return Math.min(12, totalEpisodes - 1)
-  return Math.min(15, totalEpisodes - 1)
+function buildEmotionSeries(episodeBriefs: EpisodeBrief[]) {
+  const raw = episodeBriefs.map(item => Math.max(0, item.emotionRaw))
+  const normalized = normalizeTo100(raw)
+  const smoothed = normalized.map((value, index) => {
+    const prev = normalized[index - 1] ?? value
+    const next = normalized[index + 1] ?? value
+    return Math.round((prev + value * 2 + next) / 4)
+  })
+
+  return episodeBriefs.map((item, index) => ({
+    episode: item.episode,
+    value: smoothed[index] ?? 0,
+  }))
 }
 
-function inferSecondaryPaywall(range: [number, number]): number {
-  return Math.floor((range[0] + range[1]) / 2)
+function buildEmotionAnchors(series: Array<{ episode: number, value: number }>) {
+  const first = series[0]
+  const mid = series[Math.floor(series.length / 2)]
+  const last = series[series.length - 1]
+
+  if (first == null || mid == null || last == null)
+    throw new Error('Emotion chart requires non-empty series.')
+
+  return [
+    { slot: 'Start' as const, episode: first.episode, value: first.value },
+    { slot: 'Mid' as const, episode: mid.episode, value: mid.value },
+    { slot: 'End' as const, episode: last.episode, value: last.value },
+  ]
 }
 
-function buildEpisodesForPaywallAnalysis(
-  episodeMap: Map<number, ParsedEpisode>,
-  start: number,
-  end: number,
-): Array<{ number: number, tail: string }> {
-  const episodes: Array<{ number: number, tail: string }> = []
+function buildConflictPhases(episodeBriefs: EpisodeBrief[]) {
+  const phases = [
+    { phase: 'Start' as const, ext: 0, int: 0 },
+    { phase: 'Inc.' as const, ext: 0, int: 0 },
+    { phase: 'Rise' as const, ext: 0, int: 0 },
+    { phase: 'Climax' as const, ext: 0, int: 0 },
+    { phase: 'Fall' as const, ext: 0, int: 0 },
+    { phase: 'Res.' as const, ext: 0, int: 0 },
+  ]
 
-  for (let epNum = start; epNum <= end; epNum++) {
-    const text = episodeMap.get(epNum)?.text ?? ''
-    if (text.length > 0) {
-      episodes.push({
-        number: epNum,
-        tail: text.slice(-500),
-      })
-    }
-  }
+  const denominator = Math.max(1, episodeBriefs.length - 1)
 
-  return episodes
-}
-
-function collectEpisodes(episodeMap: Map<number, ParsedEpisode>, from: number, to: number) {
-  const chunks: string[] = []
-  for (let episode = from; episode <= to; episode++) {
-    const text = episodeMap.get(episode)?.text
-    if (text == null || text.length === 0)
+  for (let index = 0; index < episodeBriefs.length; index++) {
+    const brief = episodeBriefs[index]
+    const ratioValue = index / denominator
+    const phaseIndex = Math.min(5, Math.floor(ratioValue * 6))
+    const phase = phases[phaseIndex]
+    if (phase == null)
       continue
-    chunks.push(`Episode ${episode}\n${text}`)
+
+    phase.ext += Math.max(0, brief.conflictExtRaw)
+    phase.int += Math.max(0, brief.conflictIntRaw)
   }
-  return chunks.join('\n\n')
+
+  return phases
 }
 
-function buildCharacterSamples(episodeMap: Map<number, ParsedEpisode>, totalEpisodes: number) {
-  const picks = new Set<number>([1, 2, 3, Math.ceil(totalEpisodes / 3), Math.ceil((totalEpisodes * 2) / 3), totalEpisodes])
-  return Array.from(picks)
-    .filter(ep => ep >= 1 && ep <= totalEpisodes)
-    .sort((a, b) => a - b)
-    .map((episode) => {
-      const text = (episodeMap.get(episode)?.text ?? '').slice(0, 900)
-      return `Episode ${episode}\n${text}`
-    })
-    .join('\n\n')
+function detectRedlineEvidence(episodeBriefs: EpisodeBrief[]) {
+  const terms = [
+    'terrorism',
+    'extremism',
+    'racist',
+    'genocide',
+    'incest',
+    'terror attack',
+    '恐怖主义',
+    '极端主义',
+    '种族灭绝',
+    '乱伦',
+  ]
+
+  const corpus = episodeBriefs
+    .flatMap(item => [item.opening, item.ending, ...item.keyEvents])
+    .join(' ')
+    .toLowerCase()
+
+  const evidence: string[] = []
+  for (const term of terms) {
+    if (corpus.includes(term.toLowerCase()))
+      evidence.push(term)
+  }
+
+  return evidence
 }
 
-function buildAntagonistSamples(episodeMap: Map<number, ParsedEpisode>, totalEpisodes: number) {
-  const points = [1, Math.ceil(totalEpisodes / 4), Math.ceil(totalEpisodes / 2)]
-  return points
-    .filter(ep => ep >= 1 && ep <= totalEpisodes)
-    .map(ep => `Episode ${ep}\n${(episodeMap.get(ep)?.text ?? '').slice(0, 800)}`)
-    .join('\n\n')
+function sanitizeHookType(value: string) {
+  const text = value.replace(/\s+/g, ' ').trim()
+  if (text.length === 0)
+    return 'None'
+  const compact = text.length > 48 ? `${text.slice(0, 47)}…` : text
+  return compact.toLowerCase() === 'none' ? 'None' : compact
 }
 
-function buildEmotionSamples(episodeMap: Map<number, ParsedEpisode>, totalEpisodes: number) {
-  const points = [2, Math.ceil(totalEpisodes / 3), Math.ceil((totalEpisodes * 2) / 3)]
-  return points
-    .filter(ep => ep >= 1 && ep <= totalEpisodes)
-    .map(ep => `Episode ${ep}\n${(episodeMap.get(ep)?.text ?? '').slice(-1000)}`)
-    .join('\n\n')
+function compactText(value: string, max: number) {
+  const text = value.replace(/\s+/g, ' ').trim()
+  if (text.length <= max)
+    return text
+  return `${text.slice(0, max - 1)}…`
 }
 
-function buildConflictSamples(episodeMap: Map<number, ParsedEpisode>, totalEpisodes: number) {
-  const points = [3, Math.ceil(totalEpisodes / 2), totalEpisodes]
-  return points
-    .filter(ep => ep >= 1 && ep <= totalEpisodes)
-    .map(ep => `Episode ${ep}\n${(episodeMap.get(ep)?.text ?? '').slice(-1200)}`)
-    .join('\n\n')
+function clampEpisode(episode: number, total: number) {
+  return Math.max(1, Math.min(total, Math.round(episode)))
 }
 
-function buildMechanismSamples(episodeMap: Map<number, ParsedEpisode>, totalEpisodes: number) {
-  const points = [1, Math.ceil(totalEpisodes / 4), Math.ceil(totalEpisodes / 2), Math.ceil((totalEpisodes * 3) / 4), totalEpisodes]
-  return points
-    .filter((value, index, array) => value >= 1 && value <= totalEpisodes && array.indexOf(value) === index)
-    .map(ep => `Episode ${ep}\n${(episodeMap.get(ep)?.text ?? '').slice(0, 1000)}`)
-    .join('\n\n')
+function normalizeTo100(values: number[]) {
+  const max = Math.max(0, ...values)
+  if (max <= 0)
+    return values.map(() => 0)
+  return values.map(value => Math.round((Math.max(0, value) / max) * 100))
 }
 
-function buildAudienceSamples(episodeMap: Map<number, ParsedEpisode>, totalEpisodes: number) {
-  return collectEpisodes(episodeMap, 1, Math.min(12, totalEpisodes)).slice(0, 5200)
+function normalizeRange(value: number, min: number, max: number) {
+  if (!Number.isFinite(value))
+    return 0
+  if (max <= min)
+    return 0
+  return clamp((value - min) / (max - min), 0, 1)
 }
 
-function findPaywallEpisodes(episodeMap: Map<number, ParsedEpisode>) {
-  return Array.from(episodeMap.values())
-    .filter(ep => ep.paywallCount > 0)
-    .map(ep => ep.number)
-    .sort((a, b) => a - b)
+function mean(values: number[]) {
+  if (values.length === 0)
+    return 0
+  const sum = values.reduce((acc, item) => acc + item, 0)
+  return sum / values.length
+}
+
+function ratio<T>(items: T[], predicate: (item: T) => boolean) {
+  if (items.length === 0)
+    return 0
+  const matched = items.filter(predicate).length
+  return matched / items.length
+}
+
+function clamp(value: number, min: number, max: number) {
+  if (!Number.isFinite(value))
+    return min
+  return Math.max(min, Math.min(max, value))
+}
+
+function round1(value: number) {
+  return Math.round(value * 10) / 10
 }
 
 function requiredEnv(env: ScoreRuntimeEnv, name: keyof ScoreRuntimeEnv) {
@@ -561,5 +495,3 @@ function toErrorMessage(error: unknown) {
     return error.message
   return String(error)
 }
-
-type DeterministicMarketSignals = ReturnType<typeof buildDeterministicMarketSignals>

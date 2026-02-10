@@ -1,9 +1,3 @@
-/**
- * 评分体系的公共类型定义
- * - 该文件只放“规则稳定层”：ID、分数结构、聚合函数
- * - 所有规则阈值实现都应复用这里的类型，避免各处各写一套
- */
-
 export type ScoreGrade = 'S+' | 'S' | 'A+' | 'A' | 'B' | 'C'
 
 export type AuditStatus = 'ok' | 'warn' | 'fail'
@@ -19,6 +13,12 @@ export interface AuditItem {
   confidenceFlag?: ConfidenceFlag
 }
 
+export type EpisodeHealth = 'GOOD' | 'FAIR' | 'PEAK'
+export type EpisodeState = 'optimal' | 'issue' | 'neutral'
+export type IssueCategory = 'structure' | 'pacing' | 'mixed'
+export type EmotionLevel = 'Low' | 'Medium' | 'High'
+export type ConflictDensity = 'LOW' | 'MEDIUM' | 'HIGH'
+
 export interface ScoreBreakdown {
   pay: number
   story: number
@@ -30,11 +30,83 @@ export interface ScoreBreakdown {
 }
 
 export interface ScoreMeta {
-  rulesetVersion: 'v2.1.0-freeze-nodb'
-  benchmarkMode: 'rule-only'
-  noExternalDataset: true
+  rulesetVersion: string
   redlineHit: boolean
   redlineEvidence: string[]
+  generatedAt: string
+}
+
+export interface EmotionSeriesPoint {
+  episode: number
+  value: number
+}
+
+export interface EmotionAnchorPoint {
+  slot: 'Start' | 'Mid' | 'End'
+  episode: number
+  value: number
+}
+
+export interface ConflictPhasePoint {
+  phase: 'Start' | 'Inc.' | 'Rise' | 'Climax' | 'Fall' | 'Res.'
+  ext: number
+  int: number
+}
+
+export interface EpisodeRow {
+  episode: number
+  health: EpisodeHealth
+  primaryHookType: string
+  aiHighlight: string
+}
+
+export interface DiagnosisMatrixItem {
+  episode: number
+  state: EpisodeState
+}
+
+export interface DiagnosisDetail {
+  episode: number
+  issueCategory: IssueCategory
+  issueLabel: string
+  issueReason: string
+  suggestion: string
+  hookType: string
+  emotionLevel: EmotionLevel
+  conflictDensity: ConflictDensity
+  pacingScore: number
+  signalPercent: number
+}
+
+export interface PresentationPayload {
+  commercialSummary: string
+  dimensionNarratives: {
+    monetization: string
+    story: string
+    market: string
+  }
+  charts: {
+    emotion: {
+      series: EmotionSeriesPoint[]
+      anchors: EmotionAnchorPoint[]
+      caption: string
+    }
+    conflict: {
+      phases: ConflictPhasePoint[]
+      caption: string
+    }
+  }
+  episodeRows: EpisodeRow[]
+  diagnosis: {
+    matrix: DiagnosisMatrixItem[]
+    details: DiagnosisDetail[]
+    overview: {
+      integritySummary: string
+      pacingFocusEpisode: number
+      pacingIssueLabel: string
+      pacingIssueReason: string
+    }
+  }
 }
 
 export interface AnalysisScoreResult {
@@ -50,31 +122,22 @@ export interface AnalysisScoreResult {
       potential: number
     }
   }
-  audit: {
-    items: AuditItem[]
-  }
+  presentation: PresentationPayload
 }
 
-export const RULESET_VERSION = 'v2.1.0-freeze-nodb' as const
+export const RULESET_VERSION = 'v2.2.0-mvp-briefs' as const
 
-/**
- * 评分项按维度聚合
- * 注意：Grade 判断必须基于 total110 原始值（冻结规则 12.3）
- */
-export function aggregateScores(items: AuditItem[]): ScoreBreakdown {
-  const pay = sumByPrefix(items, 'pay.')
-  const story = sumByPrefix(items, 'story.')
-  const market = sumByPrefix(items, 'market.')
-  const potential = sumByPrefix(items, 'potential.')
-  const total110 = pay + story + market + potential
+export function aggregateScores(parts: Pick<ScoreBreakdown, 'pay' | 'story' | 'market' | 'potential'>): ScoreBreakdown {
+  const pay = clampPart(parts.pay, 50)
+  const story = clampPart(parts.story, 30)
+  const market = clampPart(parts.market, 20)
+  const potential = clampPart(parts.potential, 10)
+  const total110 = round2(pay + story + market + potential)
   const overall100 = Math.round((total110 / 110) * 100)
   const grade = mapGrade(total110)
   return { pay, story, market, potential, total110, overall100, grade }
 }
 
-/**
- * Grade 映射严格遵循冻结文档
- */
 export function mapGrade(total110: number): ScoreGrade {
   if (total110 >= 101)
     return 'S+'
@@ -89,13 +152,7 @@ export function mapGrade(total110: number): ScoreGrade {
   return 'C'
 }
 
-/**
- * 红线否决：保留 total110，仅覆盖 grade 与 overall100
- */
-export function applyRedlineOverride(
-  breakdown: ScoreBreakdown,
-  redlineHit: boolean,
-): ScoreBreakdown {
+export function applyRedlineOverride(breakdown: ScoreBreakdown, redlineHit: boolean): ScoreBreakdown {
   if (!redlineHit)
     return breakdown
   return {
@@ -105,37 +162,42 @@ export function applyRedlineOverride(
   }
 }
 
-export function toAnalysisScoreResult(
-  items: AuditItem[],
-  breakdown: ScoreBreakdown,
-  redlineHit: boolean,
-  redlineEvidence: string[],
-): AnalysisScoreResult {
+export function toAnalysisScoreResult(input: {
+  breakdown: ScoreBreakdown
+  redlineHit: boolean
+  redlineEvidence: string[]
+  presentation: PresentationPayload
+  generatedAt?: string
+}): AnalysisScoreResult {
+  const generatedAt = input.generatedAt ?? new Date().toISOString()
   return {
     meta: {
       rulesetVersion: RULESET_VERSION,
-      benchmarkMode: 'rule-only',
-      noExternalDataset: true,
-      redlineHit,
-      redlineEvidence,
+      redlineHit: input.redlineHit,
+      redlineEvidence: input.redlineEvidence,
+      generatedAt,
     },
     score: {
-      total_110: breakdown.total110,
-      overall_100: breakdown.overall100,
-      grade: breakdown.grade,
+      total_110: input.breakdown.total110,
+      overall_100: input.breakdown.overall100,
+      grade: input.breakdown.grade,
       breakdown_110: {
-        pay: breakdown.pay,
-        story: breakdown.story,
-        market: breakdown.market,
-        potential: breakdown.potential,
+        pay: input.breakdown.pay,
+        story: input.breakdown.story,
+        market: input.breakdown.market,
+        potential: input.breakdown.potential,
       },
     },
-    audit: { items },
+    presentation: input.presentation,
   }
 }
 
-function sumByPrefix(items: AuditItem[], prefix: string) {
-  return items
-    .filter(item => item.id.startsWith(prefix))
-    .reduce((sum, item) => sum + item.score, 0)
+function clampPart(value: number, max: number) {
+  if (!Number.isFinite(value))
+    return 0
+  return round2(Math.max(0, Math.min(max, value)))
+}
+
+function round2(value: number) {
+  return Math.round(value * 100) / 100
 }

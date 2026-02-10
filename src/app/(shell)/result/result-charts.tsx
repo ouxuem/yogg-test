@@ -1,44 +1,89 @@
 'use client'
 
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { ChartContainer } from '@/components/ui/chart'
 
-export interface ResultChartDatum {
-  ep: string
-  emotion: number
-  conflict: number
-  conflictExt: number
-  conflictInt: number
-  rawEmotion: number
-  rawConflict: number
-  rawConflictExt: number
-  rawConflictInt: number
+interface EmotionSeriesPoint {
+  episode: number
+  value: number
 }
 
-export default function ResultCharts({ chartData }: { chartData: ResultChartDatum[] }) {
-  const renderEmotionTooltip = ({ active, payload, label }: { active?: boolean, payload?: Array<{ payload?: ResultChartDatum }>, label?: string }) => {
+interface EmotionAnchorPoint {
+  slot: 'Start' | 'Mid' | 'End'
+  episode: number
+  value: number
+}
+
+interface ConflictPhasePoint {
+  phase: 'Start' | 'Inc.' | 'Rise' | 'Climax' | 'Fall' | 'Res.'
+  ext: number
+  int: number
+}
+
+interface ResultChartsProps {
+  emotion: {
+    series: EmotionSeriesPoint[]
+    anchors: EmotionAnchorPoint[]
+    caption: string
+  }
+  conflict: {
+    phases: ConflictPhasePoint[]
+    caption: string
+  }
+}
+
+interface EmotionChartDatum {
+  episode: number
+  epLabel: string
+  value: number
+}
+
+interface ConflictChartDatum {
+  phase: ConflictPhasePoint['phase']
+  ext: number
+  int: number
+}
+
+export default function ResultCharts({ emotion, conflict }: ResultChartsProps) {
+  const emotionData: EmotionChartDatum[] = emotion.series.map(item => ({
+    episode: item.episode,
+    epLabel: `Ep ${String(item.episode).padStart(2, '0')}`,
+    value: item.value,
+  }))
+
+  const anchorByEpisode = new Map(
+    emotion.anchors.map(anchor => [anchor.episode, anchor.slot]),
+  )
+
+  const conflictData: ConflictChartDatum[] = conflict.phases.map(item => ({
+    phase: item.phase,
+    ext: item.ext,
+    int: item.int,
+  }))
+
+  const renderEmotionTooltip = ({ active, payload, label }: { active?: boolean, payload?: Array<{ payload?: EmotionChartDatum }>, label?: string }) => {
     if (!active || payload == null || payload.length === 0)
       return null
     const datum = payload[0]?.payload
     if (datum == null)
       return null
 
+    const anchor = anchorByEpisode.get(datum.episode)
+
     return (
       <div className="bg-background/95 border-border/70 rounded-md border px-3 py-2 text-xs shadow-sm">
         <p className="text-foreground font-medium">{label}</p>
-        <p className="text-muted-foreground">
-          {`normalized: ${datum.emotion}`}
-        </p>
-        <p className="text-muted-foreground">
-          {`raw count: ${datum.rawEmotion}`}
-        </p>
+        <p className="text-muted-foreground">{`intensity: ${datum.value}`}</p>
+        {anchor != null && (
+          <p className="text-primary">{`anchor: ${anchor}`}</p>
+        )}
       </div>
     )
   }
 
-  const renderConflictTooltip = ({ active, payload, label }: { active?: boolean, payload?: Array<{ payload?: ResultChartDatum }>, label?: string }) => {
+  const renderConflictTooltip = ({ active, payload, label }: { active?: boolean, payload?: Array<{ payload?: ConflictChartDatum }>, label?: string }) => {
     if (!active || payload == null || payload.length === 0)
       return null
     const datum = payload[0]?.payload
@@ -48,15 +93,8 @@ export default function ResultCharts({ chartData }: { chartData: ResultChartDatu
     return (
       <div className="bg-background/95 border-border/70 rounded-md border px-3 py-2 text-xs shadow-sm">
         <p className="text-foreground font-medium">{label}</p>
-        <p className="text-muted-foreground">
-          {`normalized total: ${datum.conflict}`}
-        </p>
-        <p className="text-muted-foreground">
-          {`raw total: ${datum.rawConflict}`}
-        </p>
-        <p className="text-muted-foreground">
-          {`raw ext/int: ${datum.rawConflictExt}/${datum.rawConflictInt}`}
-        </p>
+        <p className="text-muted-foreground">{`Ext: ${datum.ext}`}</p>
+        <p className="text-muted-foreground">{`Int: ${datum.int}`}</p>
       </div>
     )
   }
@@ -76,28 +114,38 @@ export default function ResultCharts({ chartData }: { chartData: ResultChartDatu
         </CardHeader>
         <CardContent>
           <ChartContainer
-            config={{ emotion: { label: 'Emotion', color: 'var(--chart-1)' } }}
+            config={{ emotion: { label: 'Emotion', color: 'var(--chart-4)' } }}
             className="aspect-auto h-[220px] w-full"
           >
             <ResponsiveContainer>
-              <AreaChart data={chartData} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
+              <AreaChart data={emotionData} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                <XAxis dataKey="ep" tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                <XAxis dataKey="epLabel" tickLine={false} axisLine={false} interval="preserveStartEnd" />
                 <YAxis hide domain={[0, 100]} />
                 <Tooltip cursor={{ stroke: 'var(--border)' }} content={renderEmotionTooltip} />
                 <Area
                   type="monotone"
-                  dataKey="emotion"
+                  dataKey="value"
                   stroke="var(--color-emotion)"
                   fill="color-mix(in oklab, var(--color-emotion) 22%, transparent)"
                   strokeWidth={2}
                 />
+                {emotion.anchors.map(anchor => (
+                  <ReferenceDot
+                    key={`${anchor.slot}-${anchor.episode}`}
+                    x={`Ep ${String(anchor.episode).padStart(2, '0')}`}
+                    y={anchor.value}
+                    r={6}
+                    fill="var(--background)"
+                    stroke="var(--color-emotion)"
+                    strokeWidth={3}
+                    ifOverflow="visible"
+                  />
+                ))}
               </AreaChart>
             </ResponsiveContainer>
           </ChartContainer>
-          <p className="text-muted-foreground mt-3 text-xs leading-5">
-            Preview only, relative scale. Hover to view normalized and raw counts.
-          </p>
+          <p className="text-muted-foreground mt-3 text-xs leading-5">{emotion.caption}</p>
         </CardContent>
       </Card>
 
@@ -109,7 +157,7 @@ export default function ResultCharts({ chartData }: { chartData: ResultChartDatu
             </p>
             <div className="flex items-center gap-4">
               <div className="text-muted-foreground flex items-center gap-2 text-xs">
-                <span className="bg-chart-1 size-2 rounded-full" aria-hidden="true" />
+                <span className="bg-chart-4 size-2 rounded-full" aria-hidden="true" />
                 <span>Ext</span>
               </div>
               <div className="text-muted-foreground flex items-center gap-2 text-xs">
@@ -125,28 +173,26 @@ export default function ResultCharts({ chartData }: { chartData: ResultChartDatu
         <CardContent>
           <ChartContainer
             config={{
-              conflictExt: { label: 'Ext', color: 'var(--chart-1)' },
-              conflictInt: { label: 'Int', color: 'color-mix(in oklab, var(--muted-foreground) 28%, var(--muted) 72%)' },
+              ext: { label: 'Ext', color: 'var(--chart-4)' },
+              int: { label: 'Int', color: 'color-mix(in oklab, var(--muted-foreground) 28%, var(--muted) 72%)' },
             }}
             className="aspect-auto h-[220px] w-full"
           >
             <ResponsiveContainer>
-              <BarChart data={chartData} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
+              <BarChart data={conflictData} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                <XAxis dataKey="ep" tickLine={false} axisLine={false} interval="preserveStartEnd" />
-                <YAxis hide domain={[0, 100]} />
+                <XAxis dataKey="phase" tickLine={false} axisLine={false} interval={0} />
+                <YAxis hide />
                 <Tooltip
                   cursor={{ fill: 'color-mix(in oklab, var(--muted) 60%, transparent)' }}
                   content={renderConflictTooltip}
                 />
-                <Bar dataKey="conflictExt" stackId="conflict" fill="var(--color-conflictExt)" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="conflictInt" stackId="conflict" fill="var(--color-conflictInt)" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="ext" stackId="conflict" fill="var(--color-ext)" radius={[0, 0, 0, 0]} />
+                <Bar dataKey="int" stackId="conflict" fill="var(--color-int)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </ChartContainer>
-          <p className="text-muted-foreground mt-3 text-xs leading-5">
-            Preview only, relative scale. Hover to inspect raw ext/int hit counts.
-          </p>
+          <p className="text-muted-foreground mt-3 text-xs leading-5">{conflict.caption}</p>
         </CardContent>
       </Card>
     </div>

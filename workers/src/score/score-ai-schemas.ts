@@ -1,418 +1,119 @@
 import { z } from 'zod'
 
 /**
- * L2 结构化输出 Schema
- * - 约束模型输出边界，减少后续映射层分支
- * - 所有分值上限与冻结规格一致
+ * ============================================================================
+ * AI 输出 Schema（MVP：双阶段）
+ * - EpisodePassSchema: 第1次 AI，逐集结构化
+ * - GlobalSummarySchema: 第2次 AI，全局文案总结
+ * - PresentationSchema: 最终响应展示层（后端强校验）
+ * ============================================================================
  */
 
-export const OpeningAssessmentSchema = z.object({
-  maleLead: z.object({
-    score: z.number().min(0).max(5),
-    appearsInEpisode: z.number().nullable(),
-    visualTagsFound: z.array(z.string()),
-    personaTagsFound: z.array(z.string()),
-    reasoning: z.string(),
+const HookTypeSchema = z.string().trim().min(1).max(48)
+const HighlightSchema = z.string().trim().min(8).max(220)
+const IssueTextSchema = z.string().trim().min(4).max(240)
+
+export const EpisodePassItemSchema = z.object({
+  episode: z.number().int().min(1),
+  health: z.enum(['GOOD', 'FAIR', 'PEAK']),
+  primaryHookType: HookTypeSchema,
+  aiHighlight: HighlightSchema,
+  state: z.enum(['optimal', 'issue', 'neutral']),
+  issueCategory: z.enum(['structure', 'pacing', 'mixed']),
+  issueLabel: z.string().trim().min(1).max(72),
+  issueReason: IssueTextSchema,
+  suggestion: IssueTextSchema,
+  emotionLevel: z.enum(['Low', 'Medium', 'High']),
+  conflictDensity: z.enum(['LOW', 'MEDIUM', 'HIGH']),
+  pacingScore: z.number().min(0).max(10),
+  signalPercent: z.number().min(0).max(100),
+})
+
+export const EpisodePassSchema = z.object({
+  episodes: z.array(EpisodePassItemSchema).min(1),
+})
+
+export const GlobalSummarySchema = z.object({
+  commercialSummary: z.string().trim().min(20).max(280),
+  dimensionNarratives: z.object({
+    monetization: z.string().trim().min(12).max(220),
+    story: z.string().trim().min(12).max(220),
+    market: z.string().trim().min(12).max(220),
   }),
-  femaleLead: z.object({
-    score: z.number().min(0).max(5),
-    hasConflict: z.boolean(),
-    hasMotivation: z.boolean(),
-    conflictEvidence: z.string().nullable(),
-    motivationEvidence: z.string().nullable(),
-    reasoning: z.string(),
+  chartCaptions: z.object({
+    emotion: z.string().trim().min(12).max(200),
+    conflict: z.string().trim().min(12).max(200),
+  }),
+  diagnosisOverview: z.object({
+    integritySummary: z.string().trim().min(16).max(260),
+    pacingFocusEpisode: z.number().int().min(1),
+    pacingIssueLabel: z.string().trim().min(3).max(72),
+    pacingIssueReason: z.string().trim().min(8).max(220),
   }),
 })
 
-export const Paywall1AssessmentSchema = z.object({
-  position: z.object({
-    score: z.number().min(0).max(2),
-    episode: z.number(),
-    validRange: z.string().nullable(),
-    reasoning: z.string(),
+export const PresentationSchema = z.object({
+  commercialSummary: z.string().trim().min(1),
+  dimensionNarratives: z.object({
+    monetization: z.string().trim().min(1),
+    story: z.string().trim().min(1),
+    market: z.string().trim().min(1),
   }),
-  previousEpisode: z.object({
-    score: z.number().min(0).max(4),
-    hasPlotDensity: z.boolean(),
-    hasEmotionalPeak: z.boolean(),
-    hasForeshadowing: z.boolean(),
-    plotEvidence: z.array(z.string()),
-    emotionEvidence: z.array(z.string()),
-    foreshadowEvidence: z.array(z.string()),
-    reasoning: z.string(),
-  }),
-  hookStrength: z.object({
-    score: z.number().min(0).max(5),
-    hookType: z.enum(['decision', 'crisis', 'information', 'emotion', 'none']),
-    hookEvidence: z.string().nullable(),
-    reasoning: z.string(),
-  }),
-  nextEpisode: z.object({
-    score: z.number().min(0).max(3),
-    hasImmediateAnswer: z.boolean(),
-    hasNewPlot: z.boolean(),
-    hasNewHook: z.boolean(),
-    reasoning: z.string(),
-  }),
-})
-
-export const Paywall2AssessmentSchema = z.object({
-  position: z.object({
-    score: z.number().min(0).max(2),
-    episode: z.number(),
-    validRange: z.string().nullable(),
-    reasoning: z.string(),
-  }),
-  previousEpisode: z.object({
-    score: z.number().min(0).max(3),
-    hasPlotDensity: z.boolean(),
-    hasEmotionalPeak: z.boolean(),
-    hasForeshadowing: z.boolean(),
-    reasoning: z.string(),
-  }),
-  hookStrength: z.object({
-    score: z.number().min(0).max(3),
-    hasEscalation: z.boolean(),
-    hookType: z.enum(['decision', 'crisis', 'information', 'emotion', 'none']),
-    escalationEvidence: z.string().nullable(),
-    reasoning: z.string(),
-  }),
-  nextEpisode: z.object({
-    score: z.number().min(0).max(2),
-    hasImmediateAnswer: z.boolean(),
-    hasNewPlot: z.boolean(),
-    hasNewHook: z.boolean(),
-    reasoning: z.string(),
-  }),
-})
-
-export const HooksAssessmentSchema = z.object({
-  episodicHooks: z.object({
-    ep2: z.object({
-      score: z.number().min(0).max(1.75),
-      hasSuspense: z.boolean(),
-      hasPredictable: z.boolean(),
-      evidence: z.string().nullable(),
+  charts: z.object({
+    emotion: z.object({
+      series: z.array(z.object({
+        episode: z.number().int().min(1),
+        value: z.number().min(0).max(100),
+      })).min(1),
+      anchors: z.array(z.object({
+        slot: z.enum(['Start', 'Mid', 'End']),
+        episode: z.number().int().min(1),
+        value: z.number().min(0).max(100),
+      })).length(3),
+      caption: z.string().trim().min(1),
     }),
-    ep4: z.object({
-      score: z.number().min(0).max(1.75),
-      hasSuspense: z.boolean(),
-      hasPredictable: z.boolean(),
-      evidence: z.string().nullable(),
+    conflict: z.object({
+      phases: z.array(z.object({
+        phase: z.enum(['Start', 'Inc.', 'Rise', 'Climax', 'Fall', 'Res.']),
+        ext: z.number().min(0),
+        int: z.number().min(0),
+      })).length(6),
+      caption: z.string().trim().min(1),
     }),
-    ep8: z.object({
-      score: z.number().min(0).max(1.75),
-      hasSuspense: z.boolean(),
-      hasPredictable: z.boolean(),
-      evidence: z.string().nullable(),
-    }),
-    ep10: z.object({
-      score: z.number().min(0).max(1.75),
-      hasSuspense: z.boolean(),
-      hasPredictable: z.boolean(),
-      evidence: z.string().nullable(),
-    }),
-    totalScore: z.number().min(0).max(7),
-    reasoning: z.string(),
   }),
-  density: z.object({
-    dramaEvents: z.object({
-      score: z.number().min(0).max(2.5),
-      count: z.number(),
-      events: z.array(z.string()),
-      reasoning: z.string(),
-    }),
-    motivationClarity: z.object({
-      score: z.number().min(0).max(2),
-      protagonistClear: z.boolean(),
-      antagonistClear: z.boolean(),
-      protagonistMotivation: z.string().nullable(),
-      antagonistMotivation: z.string().nullable(),
-      reasoning: z.string(),
-    }),
-    foreshadowing: z.object({
-      score: z.number().min(0).max(2.5),
-      avgPerEpisode: z.number(),
-      reasoning: z.string(),
-    }),
-    totalScore: z.number().min(0).max(7),
-  }),
-  visualHammer: z.object({
-    score: z.number().min(0).max(2),
-    totalScenes: z.number(),
-    first3Scenes: z.number(),
-    isBalanced: z.boolean(),
-    reasoning: z.string(),
-  }),
-})
-
-export const StoryAssessmentSchema = z.object({
-  coreDriver: z.object({
-    score: z.number().min(0).max(10),
-    relationshipPercentage: z.number().min(0).max(100),
-    reasoning: z.string(),
-  }),
-  characterRecognition: z.object({
-    maleLead: z.object({
-      score: z.number().min(0).max(4),
-      tagsFound: z.array(z.string()),
-      tagTypesCount: z.number(),
-      reasoning: z.string(),
-    }),
-    femaleLead: z.object({
-      score: z.number().min(0).max(6),
-      tagsFound: z.array(z.string()),
-      tagTypesCount: z.number(),
-      reasoning: z.string(),
-    }),
-    totalScore: z.number().min(0).max(10),
-  }),
-  emotionDensity: z.object({
-    score: z.number().min(0).max(6),
-    densityPercentage: z.number(),
-    reasoning: z.string(),
-  }),
-  conflictTwist: z.object({
-    conflictScore: z.number().min(0.5).max(2.5),
-    twistScore: z.number().min(0).max(1.5),
-    majorTwistCount: z.number(),
-    reasoning: z.string(),
-  }),
-})
-
-export const MarketAssessmentSchema = z.object({
-  benchmark: z.object({
-    score: z.number().min(0).max(5),
-    mechanisms: z.array(z.object({
-      name: z.string(),
-      category: z.enum(['identity', 'relationship', 'conflict', 'other']),
-      evidence: z.string(),
+  episodeRows: z.array(z.object({
+    episode: z.number().int().min(1),
+    health: z.enum(['GOOD', 'FAIR', 'PEAK']),
+    primaryHookType: z.string().trim().min(1).max(48),
+    aiHighlight: z.string().trim().min(1).max(240),
+  })).min(1),
+  diagnosis: z.object({
+    matrix: z.array(z.object({
+      episode: z.number().int().min(1),
+      state: z.enum(['optimal', 'issue', 'neutral']),
+    })).min(1),
+    details: z.array(z.object({
+      episode: z.number().int().min(1),
+      issueCategory: z.enum(['structure', 'pacing', 'mixed']),
+      issueLabel: z.string().trim().min(1).max(72),
+      issueReason: z.string().trim().min(1).max(240),
+      suggestion: z.string().trim().min(1).max(240),
+      hookType: z.string().trim().min(1).max(48),
+      emotionLevel: z.enum(['Low', 'Medium', 'High']),
+      conflictDensity: z.enum(['LOW', 'MEDIUM', 'HIGH']),
+      pacingScore: z.number().min(0).max(10),
+      signalPercent: z.number().min(0).max(100),
     })),
-    mechanismCount: z.number(),
-    reasoning: z.string(),
-  }),
-  culturalTaboo: z.object({
-    reasoning: z.string(),
-  }),
-  localization: z.object({
-    score: z.number().min(0).max(5),
-    elementsFound: z.array(z.string()),
-    avgPerEpisode: z.number(),
-    reasoning: z.string(),
-  }),
-  audienceMatch: z.object({
-    genreAudienceScore: z.number().min(0).max(3),
-    audiencePurityScore: z.number().min(0).max(2),
-    totalScore: z.number().min(0).max(5),
-    inappropriateElements: z.array(z.string()),
-    reasoning: z.string(),
-  }),
-})
-
-export const PotentialAssessmentSchema = z.object({
-  repairCost: z.object({
-    score: z.number().min(0).max(3),
-    estimatedHours: z.enum(['<3h', '3-10h', '1-3d', '>10d']),
-    primaryIssueType: z.enum(['language', 'hook', 'structure', 'core']),
-    reasoning: z.string(),
-  }),
-  expectedGain: z.object({
-    score: z.number().min(0).max(3),
-    currentScore: z.number(),
-    recoverablePoints: z.number(),
-    projectedScore: z.number(),
-    reasoning: z.string(),
-  }),
-  storyCore: z.object({
-    score: z.number().min(0).max(3),
-    storyDimensionPercent: z.number(),
-    coreDriverScore: z.number(),
-    characterScore: z.number(),
-    reasoning: z.string(),
-  }),
-  scarcity: z.object({
-    score: z.number().min(0.5).max(0.5),
-    reasoning: z.string(),
-  }),
-})
-
-// ==================== 合并版 Schemas (AI-Centric优化) ====================
-
-// L2_PAYWALL_HOOKS: 合并付费点1+付费点2+单集卡点+看点密度+视觉锤
-export const PaywallHooksAssessmentSchema = z.object({
-  // 第一付费点 (14分)
-  firstPaywall: z.object({
-    position: z.object({
-      score: z.number().min(0).max(2),
-      episode: z.number(),
-      validRange: z.string().nullable(),
-      reasoning: z.string(),
-    }),
-    previousEpisode: z.object({
-      score: z.number().min(0).max(4),
-      hasPlotDensity: z.boolean(),
-      hasEmotionalPeak: z.boolean(),
-      hasForeshadowing: z.boolean(),
-      plotEvidence: z.array(z.string()),
-      emotionEvidence: z.array(z.string()),
-      foreshadowEvidence: z.array(z.string()),
-      reasoning: z.string(),
-    }),
-    hookStrength: z.object({
-      score: z.number().min(0).max(5),
-      hookType: z.enum(['decision', 'crisis', 'information', 'emotion', 'none']),
-      hookEvidence: z.string().nullable(),
-      reasoning: z.string(),
-    }),
-    nextEpisode: z.object({
-      score: z.number().min(0).max(3),
-      hasImmediateAnswer: z.boolean(),
-      hasNewPlot: z.boolean(),
-      hasNewHook: z.boolean(),
-      reasoning: z.string(),
-    }),
-  }),
-  // 第二付费点 (10分, 长剧)
-  secondPaywall: z.object({
-    position: z.object({
-      score: z.number().min(0).max(2),
-      episode: z.number(),
-      validRange: z.string().nullable(),
-      reasoning: z.string(),
-    }),
-    previousEpisode: z.object({
-      score: z.number().min(0).max(3),
-      hasPlotDensity: z.boolean(),
-      hasEmotionalPeak: z.boolean(),
-      hasForeshadowing: z.boolean(),
-      reasoning: z.string(),
-    }),
-    hookStrength: z.object({
-      score: z.number().min(0).max(3),
-      hookType: z.enum(['decision', 'crisis', 'information', 'emotion', 'none']),
-      hasEscalation: z.boolean(),
-      escalationEvidence: z.string().nullable(),
-      reasoning: z.string(),
-    }),
-    nextEpisode: z.object({
-      score: z.number().min(0).max(2),
-      hasImmediateAnswer: z.boolean(),
-      hasNewPlot: z.boolean(),
-      hasNewHook: z.boolean(),
-      reasoning: z.string(),
-    }),
-    isApplicable: z.boolean(), // false for <30 episodes
-  }),
-  // 单集卡点 (7分)
-  episodicHooks: z.object({
-    ep2: z.object({ score: z.number().min(0).max(1.75), hasSuspense: z.boolean(), hasPredictable: z.boolean(), evidence: z.string().nullable() }),
-    ep4: z.object({ score: z.number().min(0).max(1.75), hasSuspense: z.boolean(), hasPredictable: z.boolean(), evidence: z.string().nullable() }),
-    ep8: z.object({ score: z.number().min(0).max(1.75), hasSuspense: z.boolean(), hasPredictable: z.boolean(), evidence: z.string().nullable() }),
-    ep10: z.object({ score: z.number().min(0).max(1.75), hasSuspense: z.boolean(), hasPredictable: z.boolean(), evidence: z.string().nullable() }),
-    totalScore: z.number().min(0).max(7),
-    reasoning: z.string(),
-  }),
-  // 看点密度 (7分)
-  density: z.object({
-    dramaEvents: z.object({
-      score: z.number().min(0).max(2.5),
-      count: z.number(),
-      events: z.array(z.string()),
-      reasoning: z.string(),
-    }),
-    motivationClarity: z.object({
-      score: z.number().min(0).max(2),
-      protagonistClear: z.boolean(),
-      antagonistClear: z.boolean(),
-      protagonistMotivation: z.string().nullable(),
-      antagonistMotivation: z.string().nullable(),
-      reasoning: z.string(),
-    }),
-    foreshadowing: z.object({
-      score: z.number().min(0).max(2.5),
-      avgPerEpisode: z.number(),
-      reasoning: z.string(),
-    }),
-  }),
-  // 视觉锤 (2分)
-  visualHammer: z.object({
-    score: z.number().min(0).max(2),
-    totalScenes: z.number(),
-    first3Scenes: z.number(),
-    isBalanced: z.boolean(),
-    reasoning: z.string(),
-  }),
-})
-
-// L2_MARKET_POTENTIAL: 合并市场维度+改造潜力
-export const MarketPotentialAssessmentSchema = z.object({
-  // 市场维度 (20分)
-  market: z.object({
-    benchmark: z.object({
-      score: z.number().min(0).max(5),
-      mechanisms: z.array(z.object({
-        name: z.string(),
-        category: z.enum(['identity', 'relationship', 'conflict', 'other']),
-        evidence: z.string(),
-      })),
-      mechanismCount: z.number(),
-      reasoning: z.string(),
-    }),
-    culturalTaboo: z.object({
-      reasoning: z.string(),
-    }),
-    localization: z.object({
-      score: z.number().min(0).max(5),
-      elementsFound: z.array(z.string()),
-      avgPerEpisode: z.number(),
-      reasoning: z.string(),
-    }),
-    audienceMatch: z.object({
-      genreAudienceScore: z.number().min(0).max(3),
-      audiencePurityScore: z.number().min(0).max(2),
-      totalScore: z.number().min(0).max(5),
-      inappropriateElements: z.array(z.string()),
-      reasoning: z.string(),
-    }),
-  }),
-  // 改造潜力 (10分)
-  potential: z.object({
-    repairCost: z.object({
-      score: z.number().min(0).max(3),
-      estimatedHours: z.enum(['<3h', '3-10h', '1-3d', '>10d']),
-      primaryIssueType: z.enum(['language', 'hook', 'structure', 'core']),
-      reasoning: z.string(),
-    }),
-    expectedGain: z.object({
-      score: z.number().min(0).max(3),
-      currentScore: z.number(),
-      recoverablePoints: z.number(),
-      projectedScore: z.number(),
-      reasoning: z.string(),
-    }),
-    storyCore: z.object({
-      score: z.number().min(0).max(3),
-      storyDimensionPercent: z.number(),
-      coreDriverScore: z.number(),
-      characterScore: z.number(),
-      reasoning: z.string(),
-    }),
-    scarcity: z.object({
-      score: z.number().min(0.5).max(0.5),
-      reasoning: z.string(),
+    overview: z.object({
+      integritySummary: z.string().trim().min(1),
+      pacingFocusEpisode: z.number().int().min(1),
+      pacingIssueLabel: z.string().trim().min(1).max(72),
+      pacingIssueReason: z.string().trim().min(1).max(220),
     }),
   }),
 })
 
-// 类型导出
-export type OpeningAssessment = z.infer<typeof OpeningAssessmentSchema>
-export type Paywall1Assessment = z.infer<typeof Paywall1AssessmentSchema>
-export type Paywall2Assessment = z.infer<typeof Paywall2AssessmentSchema>
-export type HooksAssessment = z.infer<typeof HooksAssessmentSchema>
-export type StoryAssessment = z.infer<typeof StoryAssessmentSchema>
-export type MarketAssessment = z.infer<typeof MarketAssessmentSchema>
-export type PotentialAssessment = z.infer<typeof PotentialAssessmentSchema>
-
-// 合并版类型导出
-export type PaywallHooksAssessment = z.infer<typeof PaywallHooksAssessmentSchema>
-export type MarketPotentialAssessment = z.infer<typeof MarketPotentialAssessmentSchema>
+export type EpisodePass = z.infer<typeof EpisodePassSchema>
+export type EpisodePassItem = z.infer<typeof EpisodePassItemSchema>
+export type GlobalSummary = z.infer<typeof GlobalSummarySchema>
+export type Presentation = z.infer<typeof PresentationSchema>

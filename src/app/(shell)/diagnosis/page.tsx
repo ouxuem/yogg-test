@@ -1,6 +1,7 @@
 'use client'
 
 import type { EpisodeState } from './diagnosis-styles'
+import type { AnalysisScoreResult } from '@/lib/analysis/score-types'
 import { RiArrowLeftSLine, RiCalendarLine } from '@remixicon/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
@@ -10,27 +11,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Spinner } from '@/components/ui/spinner'
 import { parseStoredRun, readRunRaw, subscribeRunStore, touchRun } from '@/lib/analysis/run-store'
 import { resolveRunTitle } from '@/lib/analysis/run-view'
-import {
-  buildEpisodeSignals,
-  buildHookTypeByEpisode,
-  buildIssueReasonByEpisode,
-  classifyIssueCategory,
-  compactReason,
-  extractEpisodeNumbersFromAuditItem,
-  labelForAuditItem,
-} from '@/lib/analysis/score-ui'
 import { useResolvedRid } from '@/lib/analysis/use-resolved-rid'
 import { useHydrated } from '@/lib/hooks/use-hydrated'
 import { clamp } from '@/lib/number'
 import { EpisodeMatrixCard, IntegrityCard, PacingIssueCard, PrimaryIssueCard } from './diagnosis-sections'
 
-function episodeStateFromHealth(health: 'good' | 'fair' | 'peak'): EpisodeState {
-  if (health === 'good')
-    return 'issue'
-  if (health === 'peak')
-    return 'optimal'
-  return 'neutral'
-}
+type DiagnosisDetail = AnalysisScoreResult['presentation']['diagnosis']['details'][number]
 
 export default function DiagnosisPage() {
   const router = useRouter()
@@ -67,32 +53,24 @@ export default function DiagnosisPage() {
   }, [hasRid, hydrated, rid, router, run])
 
   const title = resolveRunTitle(run?.meta.title)
+  const presentation = run?.score.presentation
+  const diagnosis = presentation?.diagnosis
 
-  const episodes = useMemo(() => run?.l1.episodes ?? [], [run])
-  const totalEpisodes = useMemo(() => run?.meta.totalEpisodes ?? episodes.length, [episodes.length, run?.meta.totalEpisodes])
-  const auditItems = useMemo(() => run?.score?.audit.items ?? [], [run])
-
-  const episodeSignals = useMemo(() => {
-    return buildEpisodeSignals(episodes)
-  }, [episodes])
-
-  const signalByEpisode = useMemo(() => {
-    return new Map(episodeSignals.map(item => [item.episode, item]))
-  }, [episodeSignals])
-
-  const hookByEpisode = useMemo(() => buildHookTypeByEpisode(auditItems), [auditItems])
-  const issueByEpisode = useMemo(() => buildIssueReasonByEpisode(auditItems), [auditItems])
-
-  const collapsedSlots = 24
-  const canExpand = totalEpisodes > collapsedSlots
+  const totalEpisodes = useMemo(() => {
+    if (run?.meta.totalEpisodes != null)
+      return run.meta.totalEpisodes
+    return diagnosis?.matrix.length ?? 0
+  }, [diagnosis?.matrix.length, run?.meta.totalEpisodes])
 
   const [selectedEpisode, setSelectedEpisode] = useState(() => {
     const fromQuery = Number(searchParams.get('ep'))
     if (Number.isFinite(fromQuery) && fromQuery >= 1)
-      return Math.min(fromQuery, Math.max(1, totalEpisodes))
-    return Math.min(9, Math.max(1, totalEpisodes))
+      return fromQuery
+    return 1
   })
 
+  const collapsedSlots = 24
+  const canExpand = totalEpisodes > collapsedSlots
   const [isExpanded, setIsExpanded] = useState(() => {
     const fromQuery = Number(searchParams.get('ep'))
     return Number.isFinite(fromQuery) && fromQuery > collapsedSlots
@@ -100,6 +78,27 @@ export default function DiagnosisPage() {
 
   const selectedEpisodeClamped = clamp(selectedEpisode, 1, Math.max(1, totalEpisodes))
   const slotCount = isExpanded ? totalEpisodes : collapsedSlots
+
+  const stateByEpisode = useMemo(() => {
+    const map = new Map<number, EpisodeState>()
+    for (const item of diagnosis?.matrix ?? [])
+      map.set(item.episode, item.state)
+    return map
+  }, [diagnosis?.matrix])
+
+  const detailByEpisode = useMemo(() => {
+    const map = new Map<number, DiagnosisDetail>()
+    for (const detail of diagnosis?.details ?? [])
+      map.set(detail.episode, detail)
+    return map
+  }, [diagnosis?.details])
+
+  const hookByEpisode = useMemo(() => {
+    const map = new Map<number, string>()
+    for (const row of presentation?.episodeRows ?? [])
+      map.set(row.episode, row.primaryHookType)
+    return map
+  }, [presentation?.episodeRows])
 
   const matrix = useMemo(() => {
     const items: Array<{ slot: number, episode: number | null, state: EpisodeState }> = []
@@ -109,74 +108,36 @@ export default function DiagnosisPage() {
         continue
       }
 
-      const signal = signalByEpisode.get(i)
       items.push({
         slot: i,
         episode: i,
-        state: signal == null ? 'neutral' : episodeStateFromHealth(signal.health),
+        state: stateByEpisode.get(i) ?? 'neutral',
       })
     }
 
     return items
-  }, [isExpanded, signalByEpisode, slotCount, totalEpisodes])
+  }, [isExpanded, slotCount, stateByEpisode, totalEpisodes])
 
-  const selectedSignal = signalByEpisode.get(selectedEpisodeClamped)
-  const selectedState = selectedSignal == null ? 'neutral' as EpisodeState : episodeStateFromHealth(selectedSignal.health)
+  const selectedState = stateByEpisode.get(selectedEpisodeClamped) ?? 'neutral'
+  const selectedDetail = detailByEpisode.get(selectedEpisodeClamped) ?? null
 
   const [filterView, setFilterView] = useState<'all' | 'structure' | 'pacing'>('all')
 
-  const selectedIssueItem = useMemo(() => {
-    const candidates = auditItems
-      .filter(item => item.status !== 'ok')
-      .filter(item => extractEpisodeNumbersFromAuditItem(item).includes(selectedEpisodeClamped))
-      .sort((a, b) => (b.max - b.score) - (a.max - a.score))
-    return candidates[0] ?? null
-  }, [auditItems, selectedEpisodeClamped])
+  const selectedSuggestion = selectedDetail?.suggestion ?? 'No issue detail for this episode. Narrative status is healthy.'
 
-  const selectedSuggestion = useMemo(() => {
-    const lineFromEpisode = issueByEpisode.get(selectedEpisodeClamped)
-    if (selectedIssueItem != null) {
-      return `${labelForAuditItem(selectedIssueItem.id)}: ${compactReason(selectedIssueItem.reason, 180)}`
-    }
-    if (lineFromEpisode != null)
-      return lineFromEpisode
-    if (selectedState === 'issue')
-      return '该集情绪和冲突信号偏弱，建议补强冲突推进与结尾钩子。'
-    return '当前集在规则评分下未发现明显结构风险。'
-  }, [issueByEpisode, selectedEpisodeClamped, selectedIssueItem, selectedState])
+  const conflictDensity = selectedDetail?.conflictDensity ?? 'LOW'
+  const emotionLevel = selectedDetail?.emotionLevel ?? 'Low'
+  const pacingScore = selectedDetail?.pacingScore ?? 0
+  const signalPercent = selectedDetail?.signalPercent ?? 0
+  const hookType = hookByEpisode.get(selectedEpisodeClamped) ?? 'None'
 
-  const pacingIssueItem = useMemo(() => {
-    const pacingItems = auditItems
-      .filter(item => item.status !== 'ok' && classifyIssueCategory(item.id) === 'pacing')
-      .sort((a, b) => (b.max - b.score) - (a.max - a.score))
-    return pacingItems[0] ?? null
-  }, [auditItems])
+  const overview = diagnosis?.overview
+  const pacingEpisode = clamp(overview?.pacingFocusEpisode ?? selectedEpisodeClamped, 1, Math.max(1, totalEpisodes))
+  const pacingIssueLabel = overview?.pacingIssueLabel ?? 'Pacing check'
+  const pacingIssueReason = overview?.pacingIssueReason ?? 'No pacing issue was flagged in this run.'
+  const integritySummary = overview?.integritySummary ?? 'No diagnosis overview available.'
 
-  const pacingEpisode = useMemo(() => {
-    if (pacingIssueItem == null)
-      return selectedEpisodeClamped
-    const episodesFromItem = extractEpisodeNumbersFromAuditItem(pacingIssueItem)
-    return episodesFromItem[0] ?? selectedEpisodeClamped
-  }, [pacingIssueItem, selectedEpisodeClamped])
-
-  const pacingIssueLabel = pacingIssueItem == null ? 'Pacing check' : labelForAuditItem(pacingIssueItem.id)
-  const pacingIssueReason = pacingIssueItem == null
-    ? '当前评分结果未检测到显著节奏拖拽。'
-    : compactReason(pacingIssueItem.reason, 180)
-
-  const integritySummary = useMemo(() => {
-    const totalChecks = auditItems.length
-    if (totalChecks === 0)
-      return '评分审计数据缺失，无法完成结构完整性判断。'
-
-    const issues = auditItems.filter(item => item.status !== 'ok')
-    if (issues.length === 0)
-      return `共 ${totalChecks} 项检查全部通过，未发现结构异常。`
-
-    const weakest = [...issues].sort((a, b) => (b.max - b.score) - (a.max - a.score))[0]
-    const passed = totalChecks - issues.length
-    return `共 ${passed}/${totalChecks} 项通过；当前主要短板是 ${labelForAuditItem(weakest.id)}（${compactReason(weakest.reason, 88)}）。`
-  }, [auditItems])
+  const showPacingCard = filterView === 'all' || filterView === 'pacing'
 
   if (!hydrated) {
     return (
@@ -200,7 +161,7 @@ export default function DiagnosisPage() {
     )
   }
 
-  if (!hasRid || !run)
+  if (!hasRid || !run || presentation == null || diagnosis == null)
     return null
 
   return (
@@ -297,20 +258,22 @@ export default function DiagnosisPage() {
           </div>
         </div>
 
-        <PrimaryIssueCard
-          conflictDensity={selectedSignal?.conflictDensity ?? 'LOW'}
-          emotionLevel={selectedSignal?.emotionLevel ?? 'Low'}
-          hookType={hookByEpisode.get(selectedEpisodeClamped) ?? 'No Hook'}
-          pacingScore={selectedSignal?.pacingScore ?? 0}
-          selectedEpisode={selectedEpisodeClamped}
-          selectedSignalPercent={selectedSignal?.signalPercent ?? 0}
-          selectedState={selectedState}
-          suggestion={selectedSuggestion}
-        />
+        {(filterView === 'all' || selectedDetail == null || selectedDetail.issueCategory === filterView) && (
+          <PrimaryIssueCard
+            conflictDensity={conflictDensity}
+            emotionLevel={emotionLevel}
+            hookType={hookType}
+            pacingScore={pacingScore}
+            selectedEpisode={selectedEpisodeClamped}
+            selectedSignalPercent={signalPercent}
+            selectedState={selectedState}
+            suggestion={selectedSuggestion}
+          />
+        )}
 
-        {(filterView === 'all' || filterView === 'pacing') && (
+        {showPacingCard && (
           <PacingIssueCard
-            hasIssue={pacingIssueItem != null}
+            hasIssue={diagnosis.details.some(detail => detail.issueCategory === 'pacing' || detail.issueCategory === 'mixed')}
             issueLabel={pacingIssueLabel}
             issueReason={pacingIssueReason}
             pacingEpisode={pacingEpisode}
