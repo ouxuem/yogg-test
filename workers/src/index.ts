@@ -1,10 +1,14 @@
-import process from 'node:process'
-import { NextResponse } from 'next/server'
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { z } from 'zod'
-import { evaluateAiScore } from '@/lib/analysis/score-ai-evaluator'
-import { buildEpisodeWindows } from '@/lib/analysis/window-builder'
+import { evaluateAiScore } from './score/score-ai-evaluator'
+import { buildEpisodeWindows } from './score/window-builder'
 
-export const runtime = 'nodejs'
+interface CloudflareBindings {
+  ZENAI_LLM_API_KEY?: string
+  ZENAI_LLM_API_BASE_URL?: string
+  ZENAI_LLM_MODEL?: string
+}
 
 const requestSchema = z.object({
   episodes: z.array(z.object({
@@ -26,31 +30,48 @@ const requestSchema = z.object({
   totalWordsFromL1: z.number().min(1),
 })
 
-export async function POST(request: Request) {
-  if (!hasApiKey()) {
-    return NextResponse.json(
+const app = new Hono<{ Bindings: CloudflareBindings }>()
+
+app.use('*', cors({
+  origin: '*',
+  allowHeaders: ['Content-Type', 'Authorization'],
+  allowMethods: ['GET', 'POST', 'OPTIONS'],
+  maxAge: 86400,
+}))
+
+app.get('/', (c) => {
+  return c.text('Hello Hono!')
+})
+
+app.options('/api/score', (c) => {
+  return c.body(null, 204)
+})
+
+app.post('/api/score', async (c) => {
+  if (!hasApiKey(c.env)) {
+    return c.json(
       { error: { code: 'ERR_SERVER_CONFIG', message: 'ZENAI_LLM_API_KEY is not configured.' } },
-      { status: 500 },
+      500,
     )
   }
 
   let body: unknown
   try {
-    body = await request.json()
+    body = await c.req.json()
   }
   catch {
-    return NextResponse.json(
+    return c.json(
       { error: { code: 'ERR_BAD_REQUEST', message: 'Request body must be valid JSON.' } },
-      { status: 400 },
+      400,
     )
   }
 
   const parsed = requestSchema.safeParse(body)
   if (!parsed.success) {
     const issue = parsed.error.issues[0]
-    return NextResponse.json(
+    return c.json(
       { error: { code: 'ERR_BAD_REQUEST', message: issue?.message ?? 'Invalid request payload.' } },
-      { status: 400 },
+      400,
     )
   }
 
@@ -65,6 +86,7 @@ export async function POST(request: Request) {
     )
 
     const score = await evaluateAiScore({
+      env: c.env,
       episodes: parsed.data.episodes,
       windows,
       language: parsed.data.language,
@@ -73,18 +95,20 @@ export async function POST(request: Request) {
       ingest: parsed.data.ingest,
     })
 
-    return NextResponse.json({ score }, { status: 200 })
+    return c.json({ score }, 200)
   }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    return NextResponse.json(
+    return c.json(
       { error: { code: 'ERR_AI_EVAL', message } },
-      { status: 500 },
+      500,
     )
   }
-}
+})
 
-function hasApiKey() {
-  const key = process.env.ZENAI_LLM_API_KEY?.trim()
+function hasApiKey(env: CloudflareBindings) {
+  const key = env.ZENAI_LLM_API_KEY?.trim()
   return typeof key === 'string' && key.length > 0
 }
+
+export default app

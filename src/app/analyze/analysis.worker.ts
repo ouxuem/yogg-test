@@ -1,31 +1,46 @@
 import type { AnalysisProgress } from '@/lib/analysis/analysis-progress'
-import type { AnalysisScoreResult } from '@/lib/analysis/score-types'
 import { parseAndPreflight } from '@/lib/analysis/input-contract'
 import { computeL1Stats } from '@/lib/analysis/l1-stats'
-import { toPreviewScoreFromScore } from '@/lib/analysis/score-preview'
 import { buildEpisodeWindows } from '@/lib/analysis/window-builder'
 import { isRecord } from '@/lib/type-guards'
 
 interface StartMessage {
   type: 'start'
   input: string
-  apiOrigin: string
+}
+
+interface ScoreApiRequest {
+  episodes: Array<{
+    number: number
+    text: string
+    paywallCount: number
+  }>
+  ingest: {
+    declaredTotalEpisodes?: number
+    inferredTotalEpisodes: number
+    totalEpisodesForScoring: number
+    observedEpisodeCount: number
+    completionState: 'completed' | 'incomplete' | 'unknown'
+    coverageRatio: number
+    mode: 'official' | 'provisional'
+  }
+  language: 'en' | 'zh'
+  tokenizer: 'whitespace' | 'intl-segmenter' | 'char-fallback'
+  totalWordsFromL1: number
 }
 
 type WorkerMessage
   = | { type: 'progress', progress: AnalysisProgress }
     | { type: 'preflight_error', errors: Array<{ code: string, message: string }> }
     | { type: 'preflight_ok', meta: ReturnType<typeof parseAndPreflight>['meta'] }
-    | {
-      type: 'done'
-      result: {
-        meta: ReturnType<typeof parseAndPreflight>['meta'] & { createdAt: string }
-        l1: ReturnType<typeof computeL1Stats>
-        windows: ReturnType<typeof buildEpisodeWindows>
-        previewScore: ReturnType<typeof toPreviewScoreFromScore>
-        score: AnalysisScoreResult
-      }
-    }
+    | { type: 'prepared', payload: PreparedPayload }
+
+interface PreparedPayload {
+  meta: ReturnType<typeof parseAndPreflight>['meta']
+  l1: ReturnType<typeof computeL1Stats>
+  windows: ReturnType<typeof buildEpisodeWindows>
+  scoreRequest: ScoreApiRequest
+}
 
 function post(message: WorkerMessage) {
   // eslint-disable-next-line no-restricted-globals
@@ -37,7 +52,6 @@ function isStartMessage(value: unknown): value is StartMessage {
     return false
   return value.type === 'start'
     && typeof value.input === 'string'
-    && typeof value.apiOrigin === 'string'
 }
 
 // eslint-disable-next-line no-restricted-globals
@@ -141,137 +155,31 @@ async function runAnalysis(startMessage: StartMessage) {
     activity: 'Preparing AI scoring tasks for all dimensions.',
   })
 
-  try {
-    const score = await requestScoreFromApi({
-      episodes: result.episodes.map(ep => ({
-        number: ep.number,
-        text: ep.text,
-        paywallCount: ep.paywallCount,
-      })),
-      ingest: {
-        declaredTotalEpisodes: result.ingest.declaredTotalEpisodes,
-        inferredTotalEpisodes: result.ingest.inferredTotalEpisodes,
-        totalEpisodesForScoring: result.ingest.totalEpisodesForScoring,
-        observedEpisodeCount: result.ingest.observedEpisodeCount,
-        completionState: result.ingest.completionState,
-        coverageRatio: result.ingest.coverageRatio,
-        mode: result.ingest.mode,
+  post({
+    type: 'prepared',
+    payload: {
+      meta: result.meta,
+      l1,
+      windows,
+      scoreRequest: {
+        episodes: result.episodes.map(ep => ({
+          number: ep.number,
+          text: ep.text,
+          paywallCount: ep.paywallCount,
+        })),
+        ingest: {
+          declaredTotalEpisodes: result.ingest.declaredTotalEpisodes,
+          inferredTotalEpisodes: result.ingest.inferredTotalEpisodes,
+          totalEpisodesForScoring: result.ingest.totalEpisodesForScoring,
+          observedEpisodeCount: result.ingest.observedEpisodeCount,
+          completionState: result.ingest.completionState,
+          coverageRatio: result.ingest.coverageRatio,
+          mode: result.ingest.mode,
+        },
+        language: result.meta.language,
+        tokenizer: result.meta.tokenizer,
+        totalWordsFromL1: l1.totals.wordCount,
       },
-      apiOrigin: startMessage.apiOrigin,
-      language: result.meta.language,
-      tokenizer: result.meta.tokenizer,
-      totalWordsFromL1: l1.totals.wordCount,
-    })
-
-    const createdAt = new Date().toISOString()
-    const previewScore = toPreviewScoreFromScore(score)
-    progress({
-      phase: 'assemble_report',
-      percent: 100,
-      activity: 'Finalizing export-ready layout.',
-    })
-    post({
-      type: 'done',
-      result: {
-        meta: { ...result.meta, createdAt },
-        l1,
-        windows,
-        previewScore,
-        score,
-      },
-    })
-  }
-  catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    post({
-      type: 'preflight_error',
-      errors: [{ code: 'ERR_AI_EVAL', message: `AI scoring failed: ${message}` }],
-    })
-  }
-}
-
-interface ScoreApiRequest {
-  episodes: Array<{
-    number: number
-    text: string
-    paywallCount: number
-  }>
-  ingest: {
-    declaredTotalEpisodes?: number
-    inferredTotalEpisodes: number
-    totalEpisodesForScoring: number
-    observedEpisodeCount: number
-    completionState: 'completed' | 'incomplete' | 'unknown'
-    coverageRatio: number
-    mode: 'official' | 'provisional'
-  }
-  apiOrigin: string
-  language: 'en' | 'zh'
-  tokenizer: 'whitespace' | 'intl-segmenter' | 'char-fallback'
-  totalWordsFromL1: number
-}
-
-async function requestScoreFromApi(payload: ScoreApiRequest): Promise<AnalysisScoreResult> {
-  const apiUrl = toApiUrl(payload.apiOrigin)
-  const response = await fetch(apiUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    },
   })
-
-  const raw = await response.text()
-  let json: unknown = null
-  if (raw.length > 0) {
-    try {
-      json = JSON.parse(raw)
-    }
-    catch {
-      json = null
-    }
-  }
-
-  if (!response.ok) {
-    const message = extractErrorMessage(json) ?? `HTTP ${response.status}`
-    throw new Error(message)
-  }
-
-  if (!isRecord(json) || !isRecord(json.score)) {
-    throw new Error('Invalid API response: missing score payload.')
-  }
-
-  if (!isAnalysisScoreResult(json.score))
-    throw new Error('Invalid API response: malformed score payload.')
-
-  return json.score
-}
-
-function toApiUrl(apiOrigin: string) {
-  const origin = apiOrigin.trim()
-  if (origin.length === 0)
-    throw new Error('Missing api origin for worker request.')
-  return new URL('/api/score', origin).toString()
-}
-
-function extractErrorMessage(payload: unknown) {
-  if (!isRecord(payload))
-    return null
-  const error = payload.error
-  if (!isRecord(error))
-    return null
-  const message = error.message
-  return typeof message === 'string' ? message : null
-}
-
-function isAnalysisScoreResult(value: unknown): value is AnalysisScoreResult {
-  if (!isRecord(value))
-    return false
-  if (!isRecord(value.meta))
-    return false
-  if (!isRecord(value.score))
-    return false
-  if (!isRecord(value.audit))
-    return false
-  if (!Array.isArray(value.audit.items))
-    return false
-  return true
 }

@@ -1,46 +1,46 @@
-import type { AnalysisLanguage, AnalysisTokenizer } from '@/lib/analysis/detect-language'
-import type { ParsedEpisode, ParseIngest } from '@/lib/analysis/input-contract'
-import type { MarketPotentialPromptInput, OpeningPromptInputEnhanced, PaywallHooksPromptInput, StoryPromptInputEnhanced } from '@/lib/analysis/score-ai-prompts'
+import type { AnalysisLanguage, AnalysisTokenizer } from './detect-language'
+import type { ParsedEpisode, ParseIngest } from './input-types'
+import type { MarketPotentialPromptInput, OpeningPromptInputEnhanced, PaywallHooksPromptInput, StoryPromptInputEnhanced } from './score-ai-prompts'
 import type {
   MarketPotentialAssessment,
   OpeningAssessment,
   PaywallHooksAssessment,
   StoryAssessment,
-} from '@/lib/analysis/score-ai-schemas'
-import type { AnalysisScoreResult, AuditItem } from '@/lib/analysis/score-types'
-import type { EpisodeWindows } from '@/lib/analysis/window-builder'
-import process from 'node:process'
+} from './score-ai-schemas'
+import type { AnalysisScoreResult, AuditItem } from './score-types'
+import type { EpisodeWindows } from './window-builder'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { generateText, Output } from 'ai'
-import { assertEnglishStructuredOutput } from '@/lib/analysis/ai-language-guard'
+import { assertEnglishStructuredOutput } from './ai-language-guard'
 import {
   buildMarketPotentialPrompt,
   buildOpeningPrompt,
   buildPaywallHooksPrompt,
   buildStoryPrompt,
 
-} from '@/lib/analysis/score-ai-prompts'
+} from './score-ai-prompts'
 import {
   MarketPotentialAssessmentSchema,
   OpeningAssessmentSchema,
   PaywallHooksAssessmentSchema,
   StoryAssessmentSchema,
-} from '@/lib/analysis/score-ai-schemas'
+} from './score-ai-schemas'
 import {
   collectMatchedTerms,
   countTerms,
   detectGenre,
   makeAuditItem,
   secondaryPaywallRange,
-} from '@/lib/analysis/score-evaluator-helpers'
-import { pickKeywords, SCORING_KEYWORDS } from '@/lib/analysis/score-keywords'
+} from './score-evaluator-helpers'
+import { pickKeywords, SCORING_KEYWORDS } from './score-keywords'
 import {
   aggregateScores,
   applyRedlineOverride,
   toAnalysisScoreResult,
-} from '@/lib/analysis/score-types'
+} from './score-types'
 
 interface EvaluateAiScoreInput {
+  env: ScoreRuntimeEnv
   episodes: ParsedEpisode[]
   windows: EpisodeWindows[]
   language: AnalysisLanguage
@@ -64,6 +64,12 @@ interface AiCallContext {
 
 const DEFAULT_ENDPOINT = 'https://llm-api.dev.zenai.cc/v1'
 const DEFAULT_MODEL = 'gemini-3-pro'
+
+export interface ScoreRuntimeEnv {
+  ZENAI_LLM_API_KEY?: string
+  ZENAI_LLM_API_BASE_URL?: string
+  ZENAI_LLM_MODEL?: string
+}
 
 /**
  * AI 评分主入口 - AI-Centric版本
@@ -92,7 +98,7 @@ export async function evaluateAiScore(input: EvaluateAiScoreInput): Promise<Anal
     fullScript: input.episodes.map(ep => ep.text).join('\n'),
   }
 
-  const client = createStructuredClient()
+  const client = createStructuredClient(input.env)
   const marketSignals = buildDeterministicMarketSignals(context)
 
   let completed = 0
@@ -127,10 +133,10 @@ export async function evaluateAiScore(input: EvaluateAiScoreInput): Promise<Anal
   )
 }
 
-function createStructuredClient() {
-  const apiKey = requiredEnv('ZENAI_LLM_API_KEY')
-  const endpoint = normalizeOptional(process.env.ZENAI_LLM_API_BASE_URL) ?? DEFAULT_ENDPOINT
-  const modelId = normalizeOptional(process.env.ZENAI_LLM_MODEL) ?? DEFAULT_MODEL
+function createStructuredClient(env: ScoreRuntimeEnv) {
+  const apiKey = requiredEnv(env, 'ZENAI_LLM_API_KEY')
+  const endpoint = normalizeOptional(env.ZENAI_LLM_API_BASE_URL) ?? DEFAULT_ENDPOINT
+  const modelId = normalizeOptional(env.ZENAI_LLM_MODEL) ?? DEFAULT_MODEL
 
   const provider = createOpenAICompatible({
     name: 'zenai',
@@ -536,10 +542,10 @@ function findPaywallEpisodes(episodeMap: Map<number, ParsedEpisode>) {
     .sort((a, b) => a - b)
 }
 
-function requiredEnv(name: string) {
-  const value = normalizeOptional(process.env[name])
+function requiredEnv(env: ScoreRuntimeEnv, name: keyof ScoreRuntimeEnv) {
+  const value = normalizeOptional(env[name])
   if (value == null)
-    throw new Error(`${name} is required for server-side scoring.`)
+    throw new Error(`${String(name)} is required for server-side scoring.`)
   return value
 }
 
