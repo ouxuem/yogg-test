@@ -40,6 +40,7 @@ export interface AnalysisScoreResult {
     }
   }
   presentation: {
+    totalEpisodes: number
     commercialSummary: string
     dimensionNarratives: {
       monetization: string
@@ -75,7 +76,6 @@ export interface AnalysisScoreResult {
         issueLabel: string
         issueReason: string
         suggestion: string
-        hookType: string
         emotionLevel: EmotionLevel
         conflictDensity: ConflictDensity
         pacingScore: number

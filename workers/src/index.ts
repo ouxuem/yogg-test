@@ -47,18 +47,23 @@ Episode counting protocol:
 - Treat isolated high episode numbers as outliers when they conflict with the main sequence.
 - Do not output any episode index above inferred chapter-based N.
 - If explicit markers are weak/missing, infer N from recurring chapter boundaries and narrative segmentation, never from pages.
+- First determine N, then extract key information episode-by-episode from 1..N.
 - Before final JSON, run a self-check: N must be chapter-based and episode-indexed arrays must align to 1..N.
 
 Coverage rules:
 - If episodes are detectable, output full coverage for 1..N in:
-  emotion.series, episodeRows, diagnosis.matrix.
-- If not detectable, synthesize 1..6 full coverage.
-- For episode-indexed arrays, episode numbers must be continuous and unique:
-  start at 1, end at N, no gaps, no duplicates.
+  episodeRows, diagnosis.matrix.
+- If not detectable, synthesize 1..6 full coverage for episodeRows and diagnosis.matrix.
 - Let N = episodeRows.length, and enforce:
-  emotion.series.length = N, diagnosis.matrix.length = N.
-- In episodeRows/emotion.series/diagnosis.matrix:
-  episode must be integer in [1, N], and arrays must be sorted by episode asc.
+  presentation.totalEpisodes = N, diagnosis.matrix.length = N.
+- For episodeRows and diagnosis.matrix:
+  episode numbers must be continuous and unique from 1..N, sorted asc.
+- Let K = min(6, N). emotion.series must contain exactly K points.
+- In emotion.series:
+  episode must be integer in [1, N], points must be unique and sorted by episode asc.
+- When N >= 2, emotion.series must include first and last episodes (1 and N).
+- emotion.series points must cover the whole narrative range (near quantile spread), not cluster in one local segment.
+- Never output any emotion.series item with episode > N.
 
 Diagnosis rules:
 - diagnosis.details must include only issue/neutral episodes.
@@ -74,7 +79,7 @@ Scoring consistency:
 
 Chart constraints:
 - emotion.anchors exactly 3: Start, Mid, End
-- emotion.anchors episode must be in [1, N]
+- emotion.anchors episode must be in [1, N] and must reference episodes present in emotion.series
 - conflict.phases exactly 6 in fixed order
 - conflict.phases ext/int in 0..100
 - emotion value and signalPercent in 0..100

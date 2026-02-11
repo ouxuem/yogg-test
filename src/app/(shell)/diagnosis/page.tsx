@@ -14,9 +14,18 @@ import { resolveRunTitle } from '@/lib/analysis/run-view'
 import { useResolvedRid } from '@/lib/analysis/use-resolved-rid'
 import { useHydrated } from '@/lib/hooks/use-hydrated'
 import { clamp } from '@/lib/number'
-import { EpisodeMatrixCard, IntegrityCard, PacingIssueCard, PrimaryIssueCard } from './diagnosis-sections'
+import { EpisodeMatrixCard, IntegrityCard, NoIssueStateCard, PacingIssueCard, PrimaryIssueCard } from './diagnosis-sections'
 
 type DiagnosisDetail = AnalysisScoreResult['presentation']['diagnosis']['details'][number]
+type FilterView = 'all' | 'structure' | 'pacing'
+
+function matchesFilter(detail: DiagnosisDetail, filterView: FilterView) {
+  if (filterView === 'all')
+    return true
+  if (detail.issueCategory === 'mixed')
+    return true
+  return detail.issueCategory === filterView
+}
 
 export default function DiagnosisPage() {
   const router = useRouter()
@@ -62,6 +71,22 @@ export default function DiagnosisPage() {
     return diagnosis?.matrix.length ?? 0
   }, [diagnosis?.matrix.length, run?.meta.totalEpisodes])
 
+  const [filterView, setFilterView] = useState<FilterView>('all')
+
+  const filteredDetails = useMemo(() => {
+    const details = diagnosis?.details ?? []
+    return details.filter(detail => matchesFilter(detail, filterView))
+  }, [diagnosis?.details, filterView])
+
+  const firstFilteredEpisode = useMemo(() => {
+    if (filteredDetails.length === 0)
+      return null
+    let minEpisode = Number.POSITIVE_INFINITY
+    for (const detail of filteredDetails)
+      minEpisode = Math.min(minEpisode, detail.episode)
+    return Number.isFinite(minEpisode) ? minEpisode : null
+  }, [filteredDetails])
+
   const [userSelectedEpisode, setSelectedEpisode] = useState<number | null>(() => {
     const fromQuery = Number(searchParams.get('ep'))
     if (Number.isFinite(fromQuery) && fromQuery >= 1)
@@ -69,16 +94,14 @@ export default function DiagnosisPage() {
     return null
   })
 
-  const selectedEpisode = useMemo(() => {
+  const selectedEpisodePreferred = useMemo(() => {
     if (userSelectedEpisode != null)
       return userSelectedEpisode
-    const matrix = diagnosis?.matrix
-    if (matrix == null || matrix.length === 0)
-      return 1
-    const firstIssue = matrix.find(item => item.state === 'issue')
-    const firstNeutral = matrix.find(item => item.state === 'neutral')
-    return firstIssue?.episode ?? firstNeutral?.episode ?? 1
-  }, [userSelectedEpisode, diagnosis?.matrix])
+    if (firstFilteredEpisode != null)
+      return firstFilteredEpisode
+    const firstIssue = diagnosis?.matrix.find(item => item.state === 'issue')
+    return firstIssue?.episode ?? 1
+  }, [userSelectedEpisode, firstFilteredEpisode, diagnosis?.matrix])
 
   const collapsedSlots = 24
   const canExpand = totalEpisodes > collapsedSlots
@@ -87,7 +110,7 @@ export default function DiagnosisPage() {
     return Number.isFinite(fromQuery) && fromQuery > collapsedSlots
   })
 
-  const selectedEpisodeClamped = clamp(selectedEpisode, 1, Math.max(1, totalEpisodes))
+  const selectedEpisodePreferredClamped = clamp(selectedEpisodePreferred, 1, Math.max(1, totalEpisodes))
   const slotCount = isExpanded ? totalEpisodes : collapsedSlots
 
   const stateByEpisode = useMemo(() => {
@@ -111,11 +134,15 @@ export default function DiagnosisPage() {
     return map
   }, [presentation?.episodeRows])
 
+  const detailEpisodeSet = useMemo(() => {
+    return new Set(filteredDetails.map(detail => detail.episode))
+  }, [filteredDetails])
+
   const matrix = useMemo(() => {
-    const items: Array<{ slot: number, episode: number | null, state: EpisodeState }> = []
+    const items: Array<{ slot: number, episode: number | null, state: EpisodeState, hasDetail: boolean }> = []
     for (let i = 1; i <= slotCount; i++) {
       if (!isExpanded && i > totalEpisodes) {
-        items.push({ slot: i, episode: null, state: 'empty' })
+        items.push({ slot: i, episode: null, state: 'empty', hasDetail: false })
         continue
       }
 
@@ -123,18 +150,25 @@ export default function DiagnosisPage() {
         slot: i,
         episode: i,
         state: stateByEpisode.get(i) ?? 'neutral',
+        hasDetail: detailEpisodeSet.has(i),
       })
     }
 
     return items
-  }, [isExpanded, slotCount, stateByEpisode, totalEpisodes])
+  }, [detailEpisodeSet, isExpanded, slotCount, stateByEpisode, totalEpisodes])
+
+  const selectedDetailPreferred = detailByEpisode.get(selectedEpisodePreferredClamped) ?? null
+  const shouldFallbackToFilteredEpisode = firstFilteredEpisode != null
+    && (selectedDetailPreferred == null || !matchesFilter(selectedDetailPreferred, filterView))
+  const selectedEpisodeClamped = shouldFallbackToFilteredEpisode
+    ? clamp(firstFilteredEpisode, 1, Math.max(1, totalEpisodes))
+    : selectedEpisodePreferredClamped
 
   const selectedState = stateByEpisode.get(selectedEpisodeClamped) ?? 'neutral'
   const selectedDetail = detailByEpisode.get(selectedEpisodeClamped) ?? null
+  const hasSelectedDetail = selectedDetail != null && matchesFilter(selectedDetail, filterView)
 
-  const [filterView, setFilterView] = useState<'all' | 'structure' | 'pacing'>('all')
-
-  const selectedSuggestion = selectedDetail?.suggestion ?? 'No issue detail for this episode. Narrative status is healthy.'
+  const selectedSuggestion = selectedDetail?.suggestion ?? ''
 
   const conflictDensity = selectedDetail?.conflictDensity ?? 'LOW'
   const emotionLevel = selectedDetail?.emotionLevel ?? 'Low'
@@ -148,7 +182,8 @@ export default function DiagnosisPage() {
   const pacingIssueReason = overview?.pacingIssueReason ?? 'No pacing issue was flagged in this run.'
   const integritySummary = overview?.integritySummary ?? 'No diagnosis overview available.'
 
-  const showPacingCard = filterView === 'all' || filterView === 'pacing'
+  const hasPacingIssue = diagnosis?.details.some(detail => detail.issueCategory === 'pacing' || detail.issueCategory === 'mixed') ?? false
+  const showPacingCard = filterView !== 'structure' && hasPacingIssue
 
   if (!hydrated) {
     return (
@@ -272,29 +307,33 @@ export default function DiagnosisPage() {
           </div>
         </div>
 
-        {(filterView === 'all' || selectedDetail == null || selectedDetail.issueCategory === filterView) && (
-          <PrimaryIssueCard
-            conflictDensity={conflictDensity}
-            emotionLevel={emotionLevel}
-            hookType={hookType}
-            pacingScore={pacingScore}
-            selectedEpisode={selectedEpisodeClamped}
-            selectedSignalPercent={signalPercent}
-            selectedState={selectedState}
-            suggestion={selectedSuggestion}
-          />
-        )}
+        {hasSelectedDetail
+          ? (
+              <PrimaryIssueCard
+                conflictDensity={conflictDensity}
+                emotionLevel={emotionLevel}
+                hookType={hookType}
+                pacingScore={pacingScore}
+                selectedEpisode={selectedEpisodeClamped}
+                selectedSignalPercent={signalPercent}
+                selectedState={selectedState}
+                suggestion={selectedSuggestion}
+              />
+            )
+          : (
+              <NoIssueStateCard selectedEpisode={selectedEpisodeClamped} filterView={filterView} />
+            )}
 
         {showPacingCard && (
           <PacingIssueCard
-            hasIssue={diagnosis.details.some(detail => detail.issueCategory === 'pacing' || detail.issueCategory === 'mixed')}
+            hasIssue={hasPacingIssue}
             issueLabel={pacingIssueLabel}
             issueReason={pacingIssueReason}
             pacingEpisode={pacingEpisode}
           />
         )}
 
-        <IntegrityCard summary={integritySummary} />
+        {filterView === 'all' && <IntegrityCard summary={integritySummary} />}
       </div>
     </main>
   )

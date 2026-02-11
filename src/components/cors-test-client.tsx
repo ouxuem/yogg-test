@@ -10,6 +10,7 @@ const ACCEPTED_FILE_TYPES = 'image/*,application/pdf,audio/*,video/*'
 const THINKING_LEVEL = 'low'
 const STRUCTURED_RESPONSE_MIME_TYPE = 'application/json'
 const FLOAT_COMPARISON_EPSILON = 0.01
+const MAX_EMOTION_SERIES_POINTS = 6
 
 const SCORE_GRADE_VALUES = ['S+', 'S', 'A+', 'A', 'B', 'C'] as const
 const EPISODE_HEALTH_VALUES = ['GOOD', 'FAIR', 'PEAK'] as const
@@ -230,15 +231,35 @@ function isStructuredScoreOutput(value: unknown): value is StructuredScoreOutput
     return false
 
   const emotionSeries = value.presentation.charts.emotion.series
-  if (!emotionSeries.every(point =>
-    isRecord(point)
-    && isNumber(point.episode)
-    && point.episode >= 1
-    && isNumber(point.value)
-    && isInRange(point.value, 0, 100),
-  )) {
+  const totalEpisodes = value.presentation.totalEpisodes
+  if (!isNumber(totalEpisodes) || totalEpisodes < 1)
     return false
+  const expectedSeriesPoints = Math.min(MAX_EMOTION_SERIES_POINTS, totalEpisodes)
+  if (emotionSeries.length !== expectedSeriesPoints)
+    return false
+
+  const seriesEpisodes: number[] = []
+  let previousSeriesEpisode = 0
+  for (const point of emotionSeries) {
+    if (!isRecord(point)
+      || !isNumber(point.episode)
+      || point.episode < 1
+      || point.episode > totalEpisodes
+      || point.episode <= previousSeriesEpisode
+      || !isNumber(point.value)
+      || !isInRange(point.value, 0, 100)) {
+      return false
+    }
+    previousSeriesEpisode = point.episode
+    seriesEpisodes.push(point.episode)
   }
+  const firstSeriesEpisode = seriesEpisodes[0]
+  const lastSeriesEpisode = seriesEpisodes[seriesEpisodes.length - 1]
+  if (totalEpisodes >= 2 && (firstSeriesEpisode !== 1 || lastSeriesEpisode !== totalEpisodes))
+    return false
+  const seriesEpisodeSet = new Set(seriesEpisodes)
+  if (seriesEpisodeSet.size !== seriesEpisodes.length)
+    return false
 
   const anchors = value.presentation.charts.emotion.anchors
   if (anchors.length !== 3)
@@ -248,6 +269,8 @@ function isStructuredScoreOutput(value: unknown): value is StructuredScoreOutput
     && isOneOf(anchor.slot, EMOTION_SLOT_VALUES)
     && isNumber(anchor.episode)
     && anchor.episode >= 1
+    && anchor.episode <= totalEpisodes
+    && seriesEpisodeSet.has(anchor.episode)
     && isNumber(anchor.value)
     && isInRange(anchor.value, 0, 100),
   )) {
@@ -303,7 +326,6 @@ function isStructuredScoreOutput(value: unknown): value is StructuredScoreOutput
     && isStringLengthInRange(detail.issueLabel, 1, 72)
     && isStringLengthInRange(detail.issueReason, 1, 240)
     && isStringLengthInRange(detail.suggestion, 1, 240)
-    && isStringLengthInRange(detail.hookType, 1, 48)
     && isOneOf(detail.emotionLevel, EMOTION_LEVEL_VALUES)
     && isOneOf(detail.conflictDensity, CONFLICT_DENSITY_VALUES)
     && isNumber(detail.pacingScore)

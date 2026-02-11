@@ -76,8 +76,15 @@ interface NormalizedEmotionSeriesPoint {
   value: number
 }
 
+interface NormalizedEmotionAnchorPoint {
+  slot: 'Start' | 'Mid' | 'End'
+  episode: number
+  value: number
+}
+
 const DEFAULT_AI_HIGHLIGHT = 'Episode summary unavailable. Added by client normalization.'
 const MAX_NORMALIZED_EPISODES = 1000
+const MAX_EMOTION_SERIES_POINTS = 6
 
 const sessions = new Map<string, StreamInternalState>()
 const listeners = new Map<string, Set<() => void>>()
@@ -419,18 +426,25 @@ function normalizeNetworkScorePayload(value: unknown) {
   const normalizedRows = normalizeEpisodeRows(presentation.episodeRows)
   const normalizedMatrix = normalizeDiagnosisMatrix(diagnosis?.matrix)
   const normalizedSeries = normalizeEmotionSeries(emotion?.series)
+  const normalizedDeclaredEpisodes = normalizeTotalEpisodes(presentation.totalEpisodes)
 
-  const totalEpisodes = inferTotalEpisodes(normalizedRows, normalizedMatrix, normalizedSeries)
+  const totalEpisodes = inferTotalEpisodes(
+    normalizedRows,
+    normalizedMatrix,
+    normalizedDeclaredEpisodes,
+  )
   if (totalEpisodes <= 0)
     return value
 
   const filledRows = fillEpisodeRows(normalizedRows, totalEpisodes)
   const detailEpisodes = collectDetailEpisodes(diagnosis?.details, totalEpisodes)
   const filledMatrix = fillDiagnosisMatrix(normalizedMatrix, detailEpisodes, totalEpisodes)
-  const filledSeries = fillEmotionSeries(normalizedSeries, totalEpisodes)
+  const sparseSeries = normalizeSparseEmotionSeries(normalizedSeries, totalEpisodes)
+  const normalizedAnchors = normalizeEmotionAnchors(emotion?.anchors, sparseSeries)
 
   const nextPresentation = {
     ...presentation,
+    totalEpisodes,
     episodeRows: filledRows,
     charts: charts == null || emotion == null
       ? presentation.charts
@@ -438,7 +452,8 @@ function normalizeNetworkScorePayload(value: unknown) {
           ...charts,
           emotion: {
             ...emotion,
-            series: filledSeries,
+            series: sparseSeries,
+            anchors: normalizedAnchors,
           },
         },
     diagnosis: diagnosis == null
@@ -475,15 +490,49 @@ function normalizeScoreOverall(value: unknown) {
 function inferTotalEpisodes(
   rows: NormalizedEpisodeRow[],
   matrix: NormalizedDiagnosisMatrixItem[],
-  series: NormalizedEmotionSeriesPoint[],
+  declared: number,
 ) {
-  const maxRow = rows.reduce((max, row) => Math.max(max, row.episode), 0)
-  const maxMatrix = matrix.reduce((max, item) => Math.max(max, item.episode), 0)
-  const maxSeries = series.reduce((max, item) => Math.max(max, item.episode), 0)
-  const inferred = Math.max(maxRow, maxMatrix, maxSeries)
+  const rowPrefix = getContinuousPrefixEnd(rows.map(row => row.episode))
+  const matrixPrefix = getContinuousPrefixEnd(matrix.map(item => item.episode))
+
+  // 优先使用更稳定的章节来源，且只接受从 1 开始的连续前缀，避免离群值把 N 拉大。
+  const inferred = rowPrefix > 0
+    ? rowPrefix
+    : declared > 0
+      ? declared
+      : matrixPrefix > 0
+        ? matrixPrefix
+        : 0
+
   if (inferred <= 0)
     return 0
   return Math.min(MAX_NORMALIZED_EPISODES, inferred)
+}
+
+function getContinuousPrefixEnd(episodes: number[]) {
+  if (episodes.length === 0)
+    return 0
+
+  const sorted = [...new Set(episodes)]
+    .filter(isPositiveInteger)
+    .sort((a, b) => a - b)
+
+  let expected = 1
+  for (const episode of sorted) {
+    if (episode < expected)
+      continue
+    if (episode !== expected)
+      break
+    expected++
+  }
+
+  return expected - 1
+}
+
+function normalizeTotalEpisodes(value: unknown) {
+  if (!isPositiveInteger(value))
+    return 0
+  return Math.min(MAX_NORMALIZED_EPISODES, value)
 }
 
 function normalizeEpisodeRows(value: unknown): NormalizedEpisodeRow[] {
@@ -618,22 +667,118 @@ function normalizeEmotionSeries(value: unknown): NormalizedEmotionSeriesPoint[] 
   return [...byEpisode.values()].sort((a, b) => a.episode - b.episode)
 }
 
-function fillEmotionSeries(series: NormalizedEmotionSeriesPoint[], totalEpisodes: number): NormalizedEmotionSeriesPoint[] {
-  const byEpisode = new Map(series.map(point => [point.episode, point]))
-  const filled: NormalizedEmotionSeriesPoint[] = []
-  let lastValue = 0
+function normalizeSparseEmotionSeries(series: NormalizedEmotionSeriesPoint[], totalEpisodes: number): NormalizedEmotionSeriesPoint[] {
+  const sanitized = series
+    .filter(point => point.episode <= totalEpisodes)
+    .sort((a, b) => a.episode - b.episode)
+  const byEpisode = new Map(sanitized.map(point => [point.episode, point]))
+  const targetEpisodes = getSparseTargetEpisodes(totalEpisodes)
+  const sparse: NormalizedEmotionSeriesPoint[] = []
 
-  for (let episode = 1; episode <= totalEpisodes; episode++) {
-    const existing = byEpisode.get(episode)
-    if (existing != null) {
-      lastValue = existing.value
-      filled.push(existing)
+  let fallbackValue = 0
+  for (const episode of targetEpisodes) {
+    const exact = byEpisode.get(episode)
+    if (exact != null) {
+      fallbackValue = exact.value
+      sparse.push(exact)
       continue
     }
-    filled.push({ episode, value: lastValue })
+
+    const nearestEpisode = pickNearestEpisode(episode, sanitized)
+    if (nearestEpisode != null) {
+      const nearest = byEpisode.get(nearestEpisode)
+      if (nearest != null) {
+        fallbackValue = nearest.value
+        sparse.push({ episode, value: nearest.value })
+        continue
+      }
+    }
+
+    sparse.push({ episode, value: fallbackValue })
   }
 
-  return filled
+  return sparse
+}
+
+function getSparseTargetEpisodes(totalEpisodes: number) {
+  const pointCount = Math.min(MAX_EMOTION_SERIES_POINTS, totalEpisodes)
+  if (pointCount <= 0)
+    return []
+  if (pointCount === 1)
+    return [1]
+
+  const targets = new Set<number>()
+  for (let index = 0; index < pointCount; index++) {
+    const raw = Math.round((index * (totalEpisodes - 1)) / (pointCount - 1)) + 1
+    const episode = Math.max(1, Math.min(totalEpisodes, raw))
+    targets.add(episode)
+  }
+
+  return [...targets].sort((a, b) => a - b)
+}
+
+function pickNearestEpisode(targetEpisode: number, points: NormalizedEmotionSeriesPoint[]) {
+  if (points.length === 0)
+    return null
+
+  let nearestEpisode = points[0]?.episode ?? null
+  let nearestDistance = nearestEpisode == null ? Number.POSITIVE_INFINITY : Math.abs(nearestEpisode - targetEpisode)
+
+  for (const point of points) {
+    const distance = Math.abs(point.episode - targetEpisode)
+    if (distance < nearestDistance) {
+      nearestEpisode = point.episode
+      nearestDistance = distance
+    }
+  }
+
+  return nearestEpisode
+}
+
+function normalizeEmotionAnchors(value: unknown, series: NormalizedEmotionSeriesPoint[]): NormalizedEmotionAnchorPoint[] {
+  const slots: Array<NormalizedEmotionAnchorPoint['slot']> = ['Start', 'Mid', 'End']
+  if (series.length === 0)
+    return []
+
+  const seriesByEpisode = new Map(series.map(point => [point.episode, point.value]))
+  const seriesEpisodes = series.map(point => point.episode)
+  const fallbackBySlot: Record<NormalizedEmotionAnchorPoint['slot'], number> = {
+    Start: seriesEpisodes[0] ?? 1,
+    Mid: seriesEpisodes[Math.floor((seriesEpisodes.length - 1) / 2)] ?? (seriesEpisodes[0] ?? 1),
+    End: seriesEpisodes[seriesEpisodes.length - 1] ?? 1,
+  }
+
+  const sourceBySlot = new Map<NormalizedEmotionAnchorPoint['slot'], { episode: number, value: number }>()
+  if (Array.isArray(value)) {
+    for (const rawAnchor of value) {
+      if (!isRecord(rawAnchor) || !isOneOf(rawAnchor.slot, slots))
+        continue
+      if (!isPositiveInteger(rawAnchor.episode))
+        continue
+      sourceBySlot.set(rawAnchor.slot as NormalizedEmotionAnchorPoint['slot'], {
+        episode: rawAnchor.episode,
+        value: clampNumber(rawAnchor.value, 0, 100, 0),
+      })
+    }
+  }
+
+  const normalized: NormalizedEmotionAnchorPoint[] = []
+  for (const slot of slots) {
+    const source = sourceBySlot.get(slot)
+    const fallbackEpisode = fallbackBySlot[slot]
+    const episode = source != null && seriesByEpisode.has(source.episode)
+      ? source.episode
+      : fallbackEpisode
+
+    const fallbackValue = seriesByEpisode.get(episode) ?? 0
+    normalized.push({
+      slot,
+      episode,
+      value: source != null && source.episode === episode ? source.value : fallbackValue,
+    })
+  }
+
+  return normalized
 }
 
 function clampNumber(value: unknown, min: number, max: number, fallback: number) {
@@ -678,6 +823,8 @@ function validateNetworkScorePayload(value: unknown) {
     return 'score.overall_100 inconsistent with total_110.'
 
   const presentation = value.presentation
+  if (!isPositiveInteger(presentation.totalEpisodes))
+    return 'presentation.totalEpisodes invalid.'
   if (!isNonEmptyString(presentation.commercialSummary))
     return 'presentation.commercialSummary invalid.'
   if (!isRecord(presentation.dimensionNarratives))
@@ -706,12 +853,17 @@ function validateNetworkScorePayload(value: unknown) {
 
   if (!Array.isArray(presentation.episodeRows) || presentation.episodeRows.length === 0)
     return 'presentation.episodeRows invalid.'
+  const totalEpisodes = presentation.totalEpisodes
+  if (presentation.episodeRows.length !== totalEpisodes)
+    return 'presentation.totalEpisodes must equal episodeRows.length.'
   const rowEpisodes = new Set<number>()
   for (const row of presentation.episodeRows) {
     if (!isRecord(row))
       return 'episodeRows entry invalid.'
     if (!isPositiveInteger(row.episode))
       return 'episodeRows.episode invalid.'
+    if (row.episode > totalEpisodes)
+      return 'episodeRows.episode must be in 1..N.'
     if (!isOneOf(row.health, ['GOOD', 'FAIR', 'PEAK']))
       return 'episodeRows.health invalid.'
     if (!isNonEmptyString(row.primaryHookType))
@@ -720,20 +872,35 @@ function validateNetworkScorePayload(value: unknown) {
       return 'episodeRows.aiHighlight invalid.'
     rowEpisodes.add(row.episode)
   }
-  const totalEpisodes = presentation.episodeRows.length
   for (let episode = 1; episode <= totalEpisodes; episode++) {
     if (!rowEpisodes.has(episode))
       return 'episodeRows must be continuous from 1..N.'
   }
 
+  const expectedSeriesPoints = Math.min(MAX_EMOTION_SERIES_POINTS, totalEpisodes)
+  if (emotion.series.length !== expectedSeriesPoints)
+    return `emotion.series must contain exactly min(6, N) points (expected ${expectedSeriesPoints}).`
+
+  const seriesEpisodes = new Set<number>()
+  let previousSeriesEpisode = 0
   for (const point of emotion.series) {
     if (!isRecord(point))
       return 'emotion.series point invalid.'
     if (!isPositiveInteger(point.episode))
       return 'emotion.series.episode invalid.'
+    if (point.episode > totalEpisodes)
+      return 'emotion.series must not exceed 1..N.'
     if (!isFiniteNumber(point.value) || !isInRange(point.value, 0, 100))
       return 'emotion.series.value invalid.'
+    if (point.episode <= previousSeriesEpisode)
+      return 'emotion.series episodes must be strictly increasing.'
+    seriesEpisodes.add(point.episode)
+    previousSeriesEpisode = point.episode
   }
+  if (seriesEpisodes.size !== emotion.series.length)
+    return 'emotion.series episodes must be unique.'
+  if (totalEpisodes >= 2 && (!seriesEpisodes.has(1) || !seriesEpisodes.has(totalEpisodes)))
+    return 'emotion.series must include first and last episodes when N >= 2.'
 
   const anchors = emotion.anchors as unknown[]
   const expectedAnchorSlots = ['Start', 'Mid', 'End']
@@ -745,6 +912,10 @@ function validateNetworkScorePayload(value: unknown) {
       return 'emotion.anchors slots must be Start, Mid, End.'
     if (!isPositiveInteger(anchor.episode))
       return 'emotion.anchors.episode invalid.'
+    if (anchor.episode > totalEpisodes)
+      return 'emotion.anchors.episode must be in 1..N.'
+    if (!seriesEpisodes.has(anchor.episode))
+      return 'emotion.anchors.episode must reference an episode present in emotion.series.'
     if (!isFiniteNumber(anchor.value) || !isInRange(anchor.value, 0, 100))
       return 'emotion.anchors.value invalid.'
   }
@@ -776,6 +947,8 @@ function validateNetworkScorePayload(value: unknown) {
     return 'diagnosis.overview.integritySummary invalid.'
   if (!isPositiveInteger(diagnosis.overview.pacingFocusEpisode))
     return 'diagnosis.overview.pacingFocusEpisode invalid.'
+  if (diagnosis.overview.pacingFocusEpisode > totalEpisodes)
+    return 'diagnosis.overview.pacingFocusEpisode must be in 1..N.'
   if (!isNonEmptyString(diagnosis.overview.pacingIssueLabel))
     return 'diagnosis.overview.pacingIssueLabel invalid.'
   if (!isNonEmptyString(diagnosis.overview.pacingIssueReason))
@@ -801,6 +974,8 @@ function validateNetworkScorePayload(value: unknown) {
       return 'diagnosis.details entry invalid.'
     if (!isPositiveInteger(detail.episode))
       return 'diagnosis.details.episode invalid.'
+    if (detail.episode > totalEpisodes)
+      return 'diagnosis.details.episode must be in 1..N.'
     if (!isOneOf(detail.issueCategory, ['structure', 'pacing', 'mixed']))
       return 'diagnosis.details.issueCategory invalid.'
     if (!isNonEmptyString(detail.issueLabel))
@@ -809,8 +984,6 @@ function validateNetworkScorePayload(value: unknown) {
       return 'diagnosis.details.issueReason invalid.'
     if (!isNonEmptyString(detail.suggestion))
       return 'diagnosis.details.suggestion invalid.'
-    if (!isNonEmptyString(detail.hookType))
-      return 'diagnosis.details.hookType invalid.'
     if (!isOneOf(detail.emotionLevel, ['Low', 'Medium', 'High']))
       return 'diagnosis.details.emotionLevel invalid.'
     if (!isOneOf(detail.conflictDensity, ['LOW', 'MEDIUM', 'HIGH']))

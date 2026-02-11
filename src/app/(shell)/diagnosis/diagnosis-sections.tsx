@@ -21,6 +21,7 @@ interface MatrixItem {
   slot: number
   episode: number | null
   state: EpisodeState
+  hasDetail: boolean
 }
 
 export function EpisodeMatrixCard({
@@ -61,7 +62,8 @@ export function EpisodeMatrixCard({
             const isSelected = episode != null && episode === selectedEpisode
             const isEmpty = item.state === 'empty'
             const isOptimal = item.state === 'optimal'
-            const isClickable = !isEmpty && !isOptimal
+            const isNeutralWithoutDetail = item.state === 'neutral' && !item.hasDetail
+            const isClickable = !isEmpty && !isOptimal && !isNeutralWithoutDetail
 
             const selectionClass = isSelected
               ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
@@ -74,7 +76,7 @@ export function EpisodeMatrixCard({
               <button
                 key={episode != null ? `ep-${episode}` : `slot-${item.slot}`}
                 type="button"
-                disabled={isEmpty || isOptimal}
+                disabled={!isClickable}
                 onClick={() => {
                   if (episode == null || !isClickable)
                     return
@@ -265,6 +267,40 @@ export function PacingIssueCard({
             </p>
           </div>
         </div>
+      </div>
+    </Card>
+  )
+}
+
+export function NoIssueStateCard({
+  selectedEpisode,
+  filterView,
+}: {
+  selectedEpisode: number
+  filterView: 'all' | 'structure' | 'pacing'
+}) {
+  const statusByView: Record<'all' | 'structure' | 'pacing', string> = {
+    all: 'No actionable issue detail for this episode. Narrative status is healthy.',
+    structure: 'No structural issue detail for this episode under current filter.',
+    pacing: 'No pacing issue detail for this episode under current filter.',
+  }
+
+  return (
+    <Card className="bg-muted/20 shadow-xs mt-4 py-0 ring-border/60">
+      <div className="px-8 py-5">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="bg-background border-border/60 inline-flex h-[28px] items-center rounded-[8px] border px-3 text-[12px] font-semibold">
+            Episode
+            {' '}
+            {selectedEpisode}
+          </span>
+          <span className="bg-background border-border/60 inline-flex h-[26px] items-center rounded-[8px] border px-3 text-[10px] font-semibold tracking-[0.4px] uppercase text-muted-foreground">
+            No issue detail
+          </span>
+        </div>
+        <p className="text-muted-foreground mt-3 text-[12px] leading-[20px]">
+          {statusByView[filterView]}
+        </p>
       </div>
     </Card>
   )

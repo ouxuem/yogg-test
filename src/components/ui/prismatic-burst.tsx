@@ -1,13 +1,12 @@
 'use client'
 
+import React, { useEffect, useRef } from 'react'
 import { Mesh, Program, Renderer, Texture, Triangle } from 'ogl'
-import * as React from 'react'
-import { useEffect, useRef } from 'react'
 
-interface Offset { x?: number | string, y?: number | string }
+type Offset = { x?: number | string, y?: number | string }
 type AnimationType = 'rotate' | 'rotate3d' | 'hover'
 
-export interface PrismaticBurstProps {
+export type PrismaticBurstProps = {
   intensity?: number
   speed?: number
   animationType?: AnimationType
@@ -193,83 +192,36 @@ void main(){
     fragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
 }`
 
-function hexToRgb01(hex: string): [number, number, number] {
-  let value = hex.trim()
-  if (value.startsWith('#'))
-    value = value.slice(1)
-  if (value.length === 3) {
-    const r = value[0]
-    const g = value[1]
-    const b = value[2]
-    value = r + r + g + g + b + b
+const hexToRgb01 = (hex: string): [number, number, number] => {
+  let h = hex.trim()
+  if (h.startsWith('#'))
+    h = h.slice(1)
+  if (h.length === 3) {
+    const r = h[0]
+    const g = h[1]
+    const b = h[2]
+    h = r + r + g + g + b + b
   }
-  const intVal = Number.parseInt(value, 16)
-  if (Number.isNaN(intVal) || (value.length !== 6 && value.length !== 8)) {
+  const intVal = Number.parseInt(h, 16)
+  if (Number.isNaN(intVal) || (h.length !== 6 && h.length !== 8))
     return [1, 1, 1]
-  }
-  return [((intVal >> 16) & 255) / 255, ((intVal >> 8) & 255) / 255, (intVal & 255) / 255]
+  const r = ((intVal >> 16) & 255) / 255
+  const g = ((intVal >> 8) & 255) / 255
+  const b = (intVal & 255) / 255
+  return [r, g, b]
 }
 
-function cssColorToRgb01(color: string): [number, number, number] {
-  if (!color)
-    return [1, 1, 1]
-  const trimmed = color.trim()
-  if (trimmed.startsWith('#'))
-    return hexToRgb01(trimmed)
-  if (typeof window === 'undefined')
-    return [1, 1, 1]
-
-  const probe = document.createElement('span')
-  probe.style.color = 'rgb(255,255,255)'
-  probe.style.color = trimmed
-  probe.style.position = 'absolute'
-  probe.style.opacity = '0'
-  probe.style.pointerEvents = 'none'
-  probe.style.left = '-9999px'
-  document.body.appendChild(probe)
-  const parsed = getComputedStyle(probe).color
-  document.body.removeChild(probe)
-
-  const match = parsed.match(/rgba?\(([^)]+)\)/)
-  if (!match)
-    return [1, 1, 1]
-  const parts = match[1].split(',').map(item => item.trim())
-  if (parts.length < 3)
-    return [1, 1, 1]
-  return [
-    Math.max(0, Math.min(255, Number(parts[0]) || 255)) / 255,
-    Math.max(0, Math.min(255, Number(parts[1]) || 255)) / 255,
-    Math.max(0, Math.min(255, Number(parts[2]) || 255)) / 255,
-  ]
-}
-
-function toPx(value: number | string | undefined): number {
-  if (value == null)
+const toPx = (v: number | string | undefined): number => {
+  if (v == null)
     return 0
-  if (typeof value === 'number')
-    return value
-  const num = Number.parseFloat(String(value).trim().replace('px', ''))
+  if (typeof v === 'number')
+    return v
+  const s = String(v).trim()
+  const num = Number.parseFloat(s.replace('px', ''))
   return Number.isNaN(num) ? 0 : num
 }
 
-function getThemePalette() {
-  if (typeof window === 'undefined')
-    return []
-  const styles = getComputedStyle(document.documentElement)
-  const palette = [
-    styles.getPropertyValue('--primary').trim(),
-    styles.getPropertyValue('--secondary').trim(),
-    styles.getPropertyValue('--accent').trim(),
-    styles.getPropertyValue('--chart-1').trim(),
-    styles.getPropertyValue('--chart-2').trim(),
-    styles.getPropertyValue('--chart-3').trim(),
-    styles.getPropertyValue('--chart-4').trim(),
-    styles.getPropertyValue('--chart-5').trim(),
-  ].filter(Boolean)
-  return palette
-}
-
-function PrismaticBurst({
+const PrismaticBurst = ({
   intensity = 2,
   speed = 0.5,
   animationType = 'rotate3d',
@@ -280,7 +232,7 @@ function PrismaticBurst({
   hoverDampness = 0,
   rayCount,
   mixBlendMode = 'lighten',
-}: PrismaticBurstProps) {
+}: PrismaticBurstProps) => {
   const containerRef = useRef<HTMLDivElement>(null)
   const programRef = useRef<Program | null>(null)
   const rendererRef = useRef<Renderer | null>(null)
@@ -291,6 +243,7 @@ function PrismaticBurst({
   const hoverDampRef = useRef<number>(hoverDampness)
   const isVisibleRef = useRef<boolean>(true)
   const meshRef = useRef<Mesh | null>(null)
+  const triRef = useRef<Triangle | null>(null)
 
   useEffect(() => {
     pausedRef.current = paused
@@ -305,7 +258,7 @@ function PrismaticBurst({
     if (!container)
       return
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.25)
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
     const renderer = new Renderer({ dpr, alpha: false, antialias: false })
     rendererRef.current = renderer
 
@@ -325,6 +278,7 @@ function PrismaticBurst({
       generateMipmaps: false,
       flipY: false,
     })
+
     gradientTex.minFilter = gl.LINEAR
     gradientTex.magFilter = gl.LINEAR
     gradientTex.wrapS = gl.CLAMP_TO_EDGE
@@ -337,6 +291,7 @@ function PrismaticBurst({
       uniforms: {
         uResolution: { value: [1, 1] as [number, number] },
         uTime: { value: 0 },
+
         uIntensity: { value: 1 },
         uSpeed: { value: 1 },
         uAnimType: { value: 0 },
@@ -349,10 +304,12 @@ function PrismaticBurst({
         uRayCount: { value: 0 },
       },
     })
+
     programRef.current = program
 
     const triangle = new Triangle(gl)
     const mesh = new Mesh(gl, { geometry: triangle, program })
+    triRef.current = triangle
     meshRef.current = mesh
 
     const resize = () => {
@@ -369,14 +326,14 @@ function PrismaticBurst({
       ro.observe(container)
     }
     else {
-      globalThis.addEventListener('resize', resize)
+      window.addEventListener('resize', resize)
     }
     resize()
 
-    const onPointer = (event: PointerEvent) => {
+    const onPointer = (e: PointerEvent) => {
       const rect = container.getBoundingClientRect()
-      const x = (event.clientX - rect.left) / Math.max(rect.width, 1)
-      const y = (event.clientY - rect.top) / Math.max(rect.height, 1)
+      const x = (e.clientX - rect.left) / Math.max(rect.width, 1)
+      const y = (e.clientY - rect.top) / Math.max(rect.height, 1)
       mouseTargetRef.current = [Math.min(Math.max(x, 0), 1), Math.min(Math.max(y, 0), 1)]
     }
     container.addEventListener('pointermove', onPointer, { passive: true })
@@ -388,11 +345,10 @@ function PrismaticBurst({
           if (entries[0])
             isVisibleRef.current = entries[0].isIntersecting
         },
-        { threshold: 0.01 },
+        { root: null, threshold: 0.01 },
       )
       io.observe(container)
     }
-
     const onVis = () => {}
     document.addEventListener('visibilitychange', onVis)
 
@@ -410,19 +366,17 @@ function PrismaticBurst({
         raf = requestAnimationFrame(update)
         return
       }
-
       const tau = 0.02 + Math.max(0, Math.min(1, hoverDampRef.current)) * 0.5
       const alpha = 1 - Math.exp(-dt / tau)
-      const target = mouseTargetRef.current
-      const smooth = mouseSmoothRef.current
-      smooth[0] += (target[0] - smooth[0]) * alpha
-      smooth[1] += (target[1] - smooth[1]) * alpha
-      program.uniforms.uMouse.value = smooth
+      const tgt = mouseTargetRef.current
+      const sm = mouseSmoothRef.current
+      sm[0] += (tgt[0] - sm[0]) * alpha
+      sm[1] += (tgt[1] - sm[1]) * alpha
+      program.uniforms.uMouse.value = sm
       program.uniforms.uTime.value = accumTime
-      renderer.render({ scene: mesh })
+      renderer.render({ scene: meshRef.current! })
       raf = requestAnimationFrame(update)
     }
-
     raf = requestAnimationFrame(update)
 
     return () => {
@@ -430,23 +384,26 @@ function PrismaticBurst({
       container.removeEventListener('pointermove', onPointer)
       ro?.disconnect()
       if (!ro)
-        globalThis.removeEventListener('resize', resize)
+        window.removeEventListener('resize', resize)
       io?.disconnect()
       document.removeEventListener('visibilitychange', onVis)
       try {
         container.removeChild(gl.canvas)
       }
-      catch {}
-      const glCtx = rendererRef.current?.gl
-      if (glCtx && gradTexRef.current?.texture) {
-        glCtx.deleteTexture(gradTexRef.current.texture)
+      catch (e) {
+        void e
       }
       meshRef.current = null
+      triRef.current = null
       programRef.current = null
       try {
-        rendererRef.current?.gl.getExtension('WEBGL_lose_context')?.loseContext()
+        const glCtx = rendererRef.current?.gl
+        if (glCtx && gradTexRef.current?.texture)
+          glCtx.deleteTexture(gradTexRef.current.texture)
       }
-      catch {}
+      catch (e) {
+        void e
+      }
       rendererRef.current = null
       gradTexRef.current = null
     }
@@ -475,24 +432,29 @@ function PrismaticBurst({
       hover: 2,
     }
     program.uniforms.uAnimType.value = animTypeMap[animationType ?? 'rotate']
+
     program.uniforms.uDistort.value = typeof distort === 'number' ? distort : 0
-    program.uniforms.uOffset.value = [toPx(offset?.x), toPx(offset?.y)]
+
+    const ox = toPx(offset?.x)
+    const oy = toPx(offset?.y)
+    program.uniforms.uOffset.value = [ox, oy]
     program.uniforms.uRayCount.value = Math.max(0, Math.floor(rayCount ?? 0))
 
-    const palette = Array.isArray(colors) && colors.length > 0 ? colors : getThemePalette()
-    if (palette.length > 0) {
+    let count = 0
+    if (Array.isArray(colors) && colors.length > 0) {
       const { gl } = renderer
-      const capped = palette.slice(0, 64)
-      const data = new Uint8Array(capped.length * 4)
-      for (let i = 0; i < capped.length; i++) {
-        const [r, g, b] = cssColorToRgb01(capped[i])
-        data[i * 4] = Math.round(r * 255)
+      const capped = colors.slice(0, 64)
+      count = capped.length
+      const data = new Uint8Array(count * 4)
+      for (let i = 0; i < count; i++) {
+        const [r, g, b] = hexToRgb01(capped[i])
+        data[i * 4 + 0] = Math.round(r * 255)
         data[i * 4 + 1] = Math.round(g * 255)
         data[i * 4 + 2] = Math.round(b * 255)
         data[i * 4 + 3] = 255
       }
       gradTex.image = data
-      gradTex.width = capped.length
+      gradTex.width = count
       gradTex.height = 1
       gradTex.minFilter = gl.LINEAR
       gradTex.magFilter = gl.LINEAR
@@ -503,14 +465,14 @@ function PrismaticBurst({
       gradTex.format = gl.RGBA
       gradTex.type = gl.UNSIGNED_BYTE
       gradTex.needsUpdate = true
-      program.uniforms.uColorCount.value = capped.length
     }
     else {
-      program.uniforms.uColorCount.value = 0
+      count = 0
     }
+    program.uniforms.uColorCount.value = count
   }, [intensity, speed, animationType, colors, distort, offset, rayCount])
 
-  return <div className="relative h-full w-full overflow-hidden" ref={containerRef} />
+  return <div className="w-full h-full relative overflow-hidden" ref={containerRef} />
 }
 
 export default PrismaticBurst

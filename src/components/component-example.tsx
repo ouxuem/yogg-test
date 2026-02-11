@@ -2,10 +2,12 @@
 
 import type { ChangeEvent } from 'react'
 import { RiFileTextLine } from '@remixicon/react'
+import { motion } from 'motion/react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Button } from '@/components/ui/button'
 import GlobalLoading from '@/components/ui/global-loading'
+import SplitText from '@/components/ui/split-text'
 import { Textarea } from '@/components/ui/textarea'
 import { createRid } from '@/lib/analysis/run-store'
 import { getStreamSessionSnapshot, startStreamSession, subscribeStreamSession } from '@/lib/analysis/stream-session'
@@ -18,6 +20,7 @@ const DEFAULT_SCORE_API_ORIGIN = 'https://worker.1143434456qq.workers.dev'
 const MAX_UPLOAD_FILE_SIZE_BYTES = 10 * 1024 * 1024
 const ALLOWED_FILE_EXTENSIONS = ['.pdf', '.md', '.markdown', '.txt']
 const ALLOWED_FILE_MIME_TYPES = ['application/pdf', 'text/plain', 'text/markdown']
+const HERO_EASE = [0.22, 1, 0.36, 1] as const
 
 interface UiError {
   code: string
@@ -143,7 +146,12 @@ export function ComponentExample() {
     () => null,
   )
 
-  const isSubmitting = activeRid != null && (streamSnapshot == null || streamSnapshot.status === 'connecting')
+  const isAwaitingResultNavigation = activeRid != null && streamSnapshot?.status === 'done'
+  const isSubmitting = activeRid != null && (
+    streamSnapshot == null
+    || streamSnapshot.status === 'connecting'
+    || streamSnapshot.status === 'done'
+  )
 
   useEffect(() => {
     window.sessionStorage.removeItem(PREFLIGHT_ERRORS_KEY)
@@ -229,9 +237,11 @@ export function ComponentExample() {
   }
 
   if (isSubmitting) {
-    const message = (streamSnapshot?.message?.trim().length ?? 0) > 0
-      ? (streamSnapshot?.message ?? 'Analyzing script...')
-      : 'Analyzing script...'
+    const message = isAwaitingResultNavigation
+      ? 'Opening results...'
+      : (streamSnapshot?.message?.trim().length ?? 0) > 0
+          ? (streamSnapshot?.message ?? 'Analyzing script...')
+          : 'Analyzing script...'
     return (
       <section className="fixed inset-0 z-120">
         <GlobalLoading message={message} testId="home-stream-loading" />
@@ -270,10 +280,34 @@ export function ComponentExample() {
 function HeroHeading() {
   return (
     <header className="space-y-3">
-      <h1 className="text-foreground text-[36px] leading-[45px] font-normal tracking-[-0.9px]">Hello,</h1>
-      <p className="text-muted-foreground text-[17px] leading-[25.5px] tracking-[-0.425px]">
-        Start with a chapter. We&apos;ll find the signals.
-      </p>
+      <SplitText
+        text="Hello,"
+        tag="h1"
+        className="text-foreground text-[36px] leading-[45px] font-normal tracking-[-0.9px]"
+        splitType="chars"
+        delay={78}
+        duration={1.2}
+        ease={HERO_EASE}
+        from={{ opacity: 0, y: 44, scale: 0.9, filter: 'blur(8px)' }}
+        to={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+        textAlign="left"
+        threshold={0}
+        rootMargin="0px"
+      />
+      <SplitText
+        text="Start with a chapter. We'll find the signals."
+        tag="h2"
+        className="text-foreground/70 text-[17px] leading-[25.5px] tracking-[-0.425px]"
+        splitType="words"
+        delay={92}
+        duration={1.05}
+        ease={HERO_EASE}
+        from={{ opacity: 0, y: 30, filter: 'blur(6px)' }}
+        to={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+        textAlign="left"
+        threshold={0}
+        rootMargin="0px"
+      />
     </header>
   )
 }
@@ -304,9 +338,48 @@ function IdeaComposerCard({
 
   return (
     <div className="relative w-full max-w-[816px]">
-      <div className="absolute inset-x-[11px] -bottom-[15px] top-[8px] rotate-[-0.5deg] rounded-[32px] border border-border/60 bg-muted/60 shadow-xs" />
-      <div className="absolute inset-x-[5px] -bottom-[8px] top-[4px] rotate-[0.3deg] rounded-[32px] border border-border/60 bg-muted/55 shadow-2xs" />
-      <div className="relative rounded-[32px] border border-border/70 bg-background/80 p-[10px] shadow-sm backdrop-blur-[2px]">
+      <motion.div
+        className="absolute inset-x-[11px] -bottom-[15px] top-[8px] rounded-[32px] border border-border/60 bg-muted/60 shadow-xs"
+        initial={{ opacity: 0, x: -220, scale: 0.86, rotate: -12 }}
+        animate={{
+          opacity: [0, 0, 0.2, 0.9, 1],
+          x: [-220, -220, -140, 0, 0],
+          scale: [0.86, 0.86, 0.93, 0.995, 1],
+          rotate: [-12, -12, -5.4, -1.1, -0.5],
+        }}
+        transition={{
+          duration: 1.05,
+          times: [0, 0.34, 0.62, 0.86, 1],
+          ease: HERO_EASE,
+        }}
+      />
+      <motion.div
+        className="absolute inset-x-[5px] -bottom-[8px] top-[4px] rounded-[32px] border border-border/60 bg-muted/55 shadow-2xs"
+        initial={{ opacity: 0, x: 220, scale: 0.86, rotate: 12 }}
+        animate={{
+          opacity: [0, 0, 0, 0.66, 0.86, 1],
+          x: [220, 220, 140, 0, 0, 0],
+          scale: [0.86, 0.86, 0.92, 0.99, 1, 1],
+          rotate: [12, 12, 10, 2.7, 1.8, 0.3],
+        }}
+        transition={{
+          duration: 1.15,
+          delay: 0.06,
+          times: [0, 0.28, 0.48, 0.72, 0.88, 1],
+          ease: HERO_EASE,
+        }}
+      />
+      <motion.div
+        className="relative rounded-[32px] border border-border/70 bg-background/80 p-[10px] shadow-sm backdrop-blur-[2px]"
+        initial={{ opacity: 0, y: 36, scale: 0.95 }}
+        animate={{ opacity: [0, 0.25, 0.86, 1], y: [36, 22, 4, 0], scale: [0.95, 0.97, 0.995, 1] }}
+        transition={{
+          duration: 0.95,
+          delay: 0.16,
+          times: [0, 0.35, 0.75, 1],
+          ease: HERO_EASE,
+        }}
+      >
         <div
           className="relative overflow-hidden rounded-[24px] border border-border/60 p-[2px]"
           style={{
@@ -394,7 +467,7 @@ function IdeaComposerCard({
           </div>
         </div>
         <div className="pointer-events-none absolute inset-0 rounded-[32px] bg-linear-to-b from-background/12 to-background/18" />
-      </div>
+      </motion.div>
     </div>
   )
 }
