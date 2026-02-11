@@ -2,8 +2,10 @@
 
 import * as React from "react"
 import { Drawer as DrawerPrimitive } from "vaul"
+import { motion, useReducedMotion } from "motion/react"
 
 import { cn } from "@/lib/utils"
+import { getModalContentVariant, getModalOverlayVariant } from "@/lib/motion/variants"
 
 function Drawer({
   ...props
@@ -33,12 +35,23 @@ function DrawerOverlay({
   className,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Overlay>) {
+  const isReduced = useReducedMotion() === true
+  const variants = getModalOverlayVariant(isReduced)
+
   return (
     <DrawerPrimitive.Overlay
       data-slot="drawer-overlay"
-      className={cn("data-open:animate-in data-closed:animate-out data-closed:fade-out-0 data-open:fade-in-0 bg-black/10 supports-backdrop-filter:backdrop-blur-xs fixed inset-0 z-50", className)}
+      className={cn("bg-black/10 supports-backdrop-filter:backdrop-blur-xs fixed inset-0 z-50", className)}
+      asChild
       {...props}
-    />
+    >
+      <motion.div
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        variants={variants}
+      />
+    </DrawerPrimitive.Overlay>
   )
 }
 
@@ -47,6 +60,9 @@ function DrawerContent({
   children,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Content>) {
+  const isReduced = useReducedMotion() === true
+  const variants = getModalContentVariant(isReduced)
+
   return (
     <DrawerPortal data-slot="drawer-portal">
       <DrawerOverlay />
@@ -56,10 +72,18 @@ function DrawerContent({
           "bg-background flex h-auto flex-col text-sm data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-0 data-[vaul-drawer-direction=bottom]:mt-24 data-[vaul-drawer-direction=bottom]:max-h-[80vh] data-[vaul-drawer-direction=bottom]:rounded-t-xl data-[vaul-drawer-direction=bottom]:border-t data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=left]:rounded-r-xl data-[vaul-drawer-direction=left]:border-r data-[vaul-drawer-direction=right]:inset-y-0 data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=right]:rounded-l-xl data-[vaul-drawer-direction=right]:border-l data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=top]:rounded-b-xl data-[vaul-drawer-direction=top]:border-b data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm group/drawer-content fixed z-50",
           className
         )}
+        asChild
         {...props}
       >
-        <div className="bg-muted mx-auto mt-4 hidden h-1.5 w-[100px] shrink-0 rounded-full group-data-[vaul-drawer-direction=bottom]/drawer-content:block bg-muted mx-auto hidden shrink-0 group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
-        {children}
+        <motion.div
+          initial="hidden"
+          animate="visible"
+          exit="exit"
+          variants={variants}
+        >
+          <div className="bg-muted mx-auto mt-4 hidden h-1.5 w-[100px] shrink-0 rounded-full group-data-[vaul-drawer-direction=bottom]/drawer-content:block bg-muted mx-auto hidden shrink-0 group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
+          {children}
+        </motion.div>
       </DrawerPrimitive.Content>
     </DrawerPortal>
   )

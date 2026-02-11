@@ -3,8 +3,10 @@
 import type { EpisodeState } from './diagnosis-styles'
 import type { AnalysisScoreResult } from '@/lib/analysis/score-types'
 import { RiArrowLeftSLine, RiCalendarLine } from '@remixicon/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import Reveal from '@/components/motion/reveal'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -72,6 +74,7 @@ export default function DiagnosisPage() {
   }, [diagnosis?.matrix.length, run?.meta.totalEpisodes])
 
   const [filterView, setFilterView] = useState<FilterView>('all')
+  const isReduced = useReducedMotion() === true
 
   const filteredDetails = useMemo(() => {
     const details = diagnosis?.details ?? []
@@ -228,113 +231,132 @@ export default function DiagnosisPage() {
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-6xl px-6 pb-16 pt-10">
-        <div className="border-border/60 border-b pb-6">
-          <p className="text-muted-foreground text-[14px] leading-5 font-semibold tracking-[0.7px] uppercase">
-            Diagnosis report
-          </p>
+      <motion.div
+        className="mx-auto w-full max-w-6xl px-6 pb-16 pt-10"
+        initial={{ opacity: 0, y: isReduced ? 0 : 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 260, damping: 34 }}
+      >
+        <Reveal variant="fadeInUp" delay={0}>
+          <div className="border-border/60 border-b pb-6">
+            <p className="text-muted-foreground text-[14px] leading-5 font-semibold tracking-[0.7px] uppercase">
+              Diagnosis report
+            </p>
 
-          <div className="mt-2 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
-            <div className="min-w-0">
-              <h1 className="text-foreground text-[48px] leading-[48px] font-semibold tracking-[-1.2px]">
-                Episode Structural Diagnosis
-              </h1>
+            <div className="mt-2 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+              <div className="min-w-0">
+                <h1 className="text-foreground text-[48px] leading-[48px] font-semibold tracking-[-1.2px]">
+                  Episode Structural Diagnosis
+                </h1>
 
-              <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-2 text-[18px] leading-[28px]">
-                <RiCalendarLine className="size-5 text-primary" aria-hidden="true" />
-                <span>
-                  Project:
-                  {' '}
-                  <span className="text-foreground font-medium">{title}</span>
-                </span>
+                <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-2 text-[18px] leading-[28px]">
+                  <RiCalendarLine className="size-5 text-primary" aria-hidden="true" />
+                  <span>
+                    Project:
+                    {' '}
+                    <span className="text-foreground font-medium">{title}</span>
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-start gap-3 lg:justify-end">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    if (!hasRid || rid == null)
+                      return
+                    router.push(`/result?rid=${encodeURIComponent(rid)}`)
+                  }}
+                  disabled={!hasRid}
+                  className="h-[38px] gap-2 px-4 border-border/60 bg-background shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)] disabled:opacity-60"
+                >
+                  <RiArrowLeftSLine className="size-5" />
+                  Back to result
+                </Button>
               </div>
             </div>
+          </div>
+        </Reveal>
 
-            <div className="flex items-center justify-start gap-3 lg:justify-end">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  if (!hasRid || rid == null)
-                    return
-                  router.push(`/result?rid=${encodeURIComponent(rid)}`)
+        <Reveal variant="fadeInUp" delay={0.05}>
+          <EpisodeMatrixCard
+            canExpand={canExpand}
+            isExpanded={isExpanded}
+            matrix={matrix}
+            selectedEpisode={selectedEpisodeClamped}
+            setIsExpanded={setIsExpanded}
+            setSelectedEpisode={setSelectedEpisode}
+            totalEpisodes={totalEpisodes}
+          />
+        </Reveal>
+
+        <Reveal variant="fadeInUp" delay={0.08}>
+          <div className="mt-10 flex items-center justify-between">
+            <h2 className="text-foreground text-[18px] leading-[28px] font-semibold">
+              Analysis Details
+            </h2>
+
+            <div className="flex items-center gap-3">
+              <p className="text-muted-foreground text-[12px] leading-4">
+                Filter view:
+              </p>
+              <Select
+                value={filterView}
+                onValueChange={(value) => {
+                  if (value === 'all' || value === 'structure' || value === 'pacing')
+                    setFilterView(value)
                 }}
-                disabled={!hasRid}
-                className="h-[38px] gap-2 px-4 border-border/60 bg-background shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)] disabled:opacity-60"
               >
-                <RiArrowLeftSLine className="size-5" />
-                Back to result
-              </Button>
+                <SelectTrigger size="sm" className="w-[140px]">
+                  <SelectValue placeholder="All Issues" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Issues</SelectItem>
+                  <SelectItem value="structure">Structural</SelectItem>
+                  <SelectItem value="pacing">Pacing</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
-        </div>
+        </Reveal>
 
-        <EpisodeMatrixCard
-          canExpand={canExpand}
-          isExpanded={isExpanded}
-          matrix={matrix}
-          selectedEpisode={selectedEpisodeClamped}
-          setIsExpanded={setIsExpanded}
-          setSelectedEpisode={setSelectedEpisode}
-          totalEpisodes={totalEpisodes}
-        />
-
-        <div className="mt-10 flex items-center justify-between">
-          <h2 className="text-foreground text-[18px] leading-[28px] font-semibold">
-            Analysis Details
-          </h2>
-
-          <div className="flex items-center gap-3">
-            <p className="text-muted-foreground text-[12px] leading-4">
-              Filter view:
-            </p>
-            <Select
-              value={filterView}
-              onValueChange={(value) => {
-                if (value === 'all' || value === 'structure' || value === 'pacing')
-                  setFilterView(value)
-              }}
-            >
-              <SelectTrigger size="sm" className="w-[140px]">
-                <SelectValue placeholder="All Issues" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Issues</SelectItem>
-                <SelectItem value="structure">Structural</SelectItem>
-                <SelectItem value="pacing">Pacing</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {hasSelectedDetail
-          ? (
-              <PrimaryIssueCard
-                conflictDensity={conflictDensity}
-                emotionLevel={emotionLevel}
-                hookType={hookType}
-                pacingScore={pacingScore}
-                selectedEpisode={selectedEpisodeClamped}
-                selectedSignalPercent={signalPercent}
-                selectedState={selectedState}
-                suggestion={selectedSuggestion}
-              />
-            )
-          : (
-              <NoIssueStateCard selectedEpisode={selectedEpisodeClamped} filterView={filterView} />
-            )}
+        <Reveal variant="fadeInUp" delay={0.1}>
+          {hasSelectedDetail
+            ? (
+                <PrimaryIssueCard
+                  conflictDensity={conflictDensity}
+                  emotionLevel={emotionLevel}
+                  hookType={hookType}
+                  pacingScore={pacingScore}
+                  selectedEpisode={selectedEpisodeClamped}
+                  selectedSignalPercent={signalPercent}
+                  selectedState={selectedState}
+                  suggestion={selectedSuggestion}
+                />
+              )
+            : (
+                <NoIssueStateCard selectedEpisode={selectedEpisodeClamped} filterView={filterView} />
+              )}
+        </Reveal>
 
         {showPacingCard && (
-          <PacingIssueCard
-            hasIssue={hasPacingIssue}
-            issueLabel={pacingIssueLabel}
-            issueReason={pacingIssueReason}
-            pacingEpisode={pacingEpisode}
-          />
+          <Reveal variant="fadeInUp" delay={0.14}>
+            <PacingIssueCard
+              hasIssue={hasPacingIssue}
+              issueLabel={pacingIssueLabel}
+              issueReason={pacingIssueReason}
+              pacingEpisode={pacingEpisode}
+            />
+          </Reveal>
         )}
 
-        {filterView === 'all' && <IntegrityCard summary={integritySummary} />}
-      </div>
+        {filterView === 'all' && (
+          <Reveal variant="fadeInUp" delay={0.16}>
+            <IntegrityCard summary={integritySummary} />
+          </Reveal>
+        )}
+      </motion.div>
     </main>
   )
 }

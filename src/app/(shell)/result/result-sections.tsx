@@ -1,6 +1,7 @@
 'use client'
 
 import type { RemixiconComponentType } from '@remixicon/react'
+import { motion, useReducedMotion } from 'motion/react'
 import { Progress } from '@/components/ui/progress'
 
 export type HealthLevel = 'good' | 'fair' | 'peak'
@@ -84,6 +85,7 @@ function clampScore(value: number) {
 }
 
 export function GradeRing({ grade, score100 }: { grade: string, score100: number }) {
+  const isReduced = useReducedMotion() === true
   const normalizedScore = clampScore(score100)
   const radius = 46
   const circumference = 2 * Math.PI * radius
@@ -100,7 +102,7 @@ export function GradeRing({ grade, score100 }: { grade: string, score100: number
           stroke="color-mix(in oklab, var(--muted) 55%, var(--border) 45%)"
           strokeWidth="10"
         />
-        <circle
+        <motion.circle
           cx="60"
           cy="60"
           r="46"
@@ -108,7 +110,9 @@ export function GradeRing({ grade, score100 }: { grade: string, score100: number
           stroke="var(--primary)"
           strokeWidth="10"
           strokeDasharray={circumference}
-          strokeDashoffset={dashOffset}
+          strokeDashoffset={circumference}
+          animate={{ strokeDashoffset: dashOffset }}
+          transition={isReduced ? { duration: 0.01 } : { type: 'spring', stiffness: 220, damping: 30 }}
           strokeLinecap="round"
           transform="rotate(-90 60 60)"
         />

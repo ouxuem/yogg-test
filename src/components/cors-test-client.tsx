@@ -1,6 +1,7 @@
 'use client'
 
 import type { AnalysisScoreResult } from '@/lib/analysis/score-types'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 
@@ -566,12 +567,22 @@ function extractWorkerErrorMessage(payload: unknown) {
 }
 
 export default function CorsTestClient({ endpoint }: { endpoint: string }) {
+  const isReduced = useReducedMotion() === true
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [result, setResult] = useState<TestResult | null>(null)
   const [isRunning, setIsRunning] = useState(false)
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null)
 
   const requestUrlPreview = buildWorkerStreamUrl(endpoint)
+  const resultState = isRunning ? 'running' : result?.error != null ? 'error' : result?.ok ? 'success' : 'idle'
+  const resultStateLabel
+    = resultState === 'running'
+      ? 'Streaming'
+      : resultState === 'success'
+        ? 'Success'
+        : resultState === 'error'
+          ? 'Error'
+          : 'Idle'
 
   async function run() {
     if (selectedFile == null || isRunning)
@@ -692,7 +703,7 @@ export default function CorsTestClient({ endpoint }: { endpoint: string }) {
   async function copyAiOutput() {
     const payload = getCopyPayload(result)
     if (payload == null) {
-      setCopyFeedback('暂无可复制内容')
+      setCopyFeedback('No output available to copy')
       return
     }
 
@@ -702,21 +713,26 @@ export default function CorsTestClient({ endpoint }: { endpoint: string }) {
       else
         fallbackCopyText(payload)
 
-      setCopyFeedback('已复制 AI 输出')
+      setCopyFeedback('AI output copied')
     }
     catch {
       try {
         fallbackCopyText(payload)
-        setCopyFeedback('已复制 AI 输出')
+        setCopyFeedback('AI output copied')
       }
       catch {
-        setCopyFeedback('复制失败，请检查浏览器权限')
+        setCopyFeedback('Copy failed. Check browser clipboard permissions.')
       }
     }
   }
 
   return (
-    <section className="space-y-4">
+    <motion.section
+      className="space-y-4"
+      initial={{ opacity: 0, y: isReduced ? 0 : 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 280, damping: 32 }}
+    >
       <div className="space-y-2">
         <div className="text-sm font-medium">Worker Endpoint Base</div>
         <div className="text-muted-foreground break-all text-sm">
@@ -728,12 +744,12 @@ export default function CorsTestClient({ endpoint }: { endpoint: string }) {
 
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-2">
-          <div className="text-sm font-medium">Model（服务端固定）</div>
+          <div className="text-sm font-medium">Model (server-fixed)</div>
           <div className="text-muted-foreground text-sm">{DEFAULT_MODEL}</div>
           <p className="text-muted-foreground text-xs">
-            API Key 由 Worker 读取
+            The API key is read by the Worker from
             <code>ZENAI_LLM_API_KEY</code>
-            ，浏览器不再持有密钥。
+            . The browser never stores this secret.
           </p>
         </div>
 
@@ -743,13 +759,13 @@ export default function CorsTestClient({ endpoint }: { endpoint: string }) {
             Prompt is fixed on server side. Frontend no longer sends prompt fields.
           </p>
           <p className="text-muted-foreground text-xs">
-            本实验固定开启：Worker 代理 + streamGenerateContent + thinkingLevel=low + responseSchema=score+presentation（无 meta）。
+            This experiment uses a fixed setup: Worker proxy + streamGenerateContent + thinkingLevel=low + responseSchema=score+presentation (without meta).
           </p>
         </div>
       </div>
 
       <div className="space-y-2">
-        <div className="text-sm font-medium">媒体文件（必选）</div>
+        <div className="text-sm font-medium">Media file (required)</div>
         <input
           type="file"
           accept={ACCEPTED_FILE_TYPES}
@@ -759,36 +775,53 @@ export default function CorsTestClient({ endpoint }: { endpoint: string }) {
           }}
           className="bg-background border-input file:text-foreground w-full rounded-md border px-3 py-2 text-sm file:mr-3 file:cursor-pointer file:border-0 file:bg-transparent file:text-sm file:font-medium"
         />
-        {selectedFile == null
-          ? (
-              <p className="text-muted-foreground text-xs">
-                支持 image / PDF / audio / video；浏览器只上传文件与提示词，base64 与上游调用在 Worker 内处理。
-              </p>
-            )
-          : (
-              <div className="bg-muted/40 space-y-1 rounded-md border p-3 text-xs leading-relaxed">
-                <div>
-                  <span className="font-medium">Name:</span>
-                  {' '}
-                  {selectedFile.name}
-                </div>
-                <div>
-                  <span className="font-medium">Size:</span>
-                  {' '}
-                  {formatBytes(selectedFile.size)}
-                </div>
-                <div>
-                  <span className="font-medium">MIME:</span>
-                  {' '}
-                  {resolveMimeType(selectedFile)}
-                </div>
-              </div>
-            )}
+        <AnimatePresence mode="wait" initial={false}>
+          {selectedFile == null
+            ? (
+                <motion.p
+                  key="media-empty"
+                  className="text-muted-foreground text-xs"
+                  initial={{ opacity: 0, y: isReduced ? 0 : 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: isReduced ? 0 : -4, transition: { duration: 0.16 } }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 32 }}
+                >
+                  Supported: image / PDF / audio / video. The browser only uploads the file; base64 conversion and upstream calls happen in the Worker.
+                </motion.p>
+              )
+            : (
+                <motion.div
+                  key={`media-selected-${selectedFile.name}`}
+                  className="bg-muted/40 space-y-1 rounded-md border p-3 text-xs leading-relaxed"
+                  initial={{ opacity: 0, y: isReduced ? 0 : 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: isReduced ? 0 : -4, transition: { duration: 0.16 } }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 32 }}
+                >
+                  <div>
+                    <span className="font-medium">Name:</span>
+                    {' '}
+                    {selectedFile.name}
+                  </div>
+                  <div>
+                    <span className="font-medium">Size:</span>
+                    {' '}
+                    {formatBytes(selectedFile.size)}
+                  </div>
+                  <div>
+                    <span className="font-medium">MIME:</span>
+                    {' '}
+                    {resolveMimeType(selectedFile)}
+                  </div>
+                </motion.div>
+              )}
+        </AnimatePresence>
       </div>
 
       <div className="flex flex-wrap gap-2">
         <Button
           type="button"
+          motion="bouncy"
           disabled={isRunning || selectedFile == null}
           onClick={() => {
             void run()
@@ -800,29 +833,68 @@ export default function CorsTestClient({ endpoint }: { endpoint: string }) {
 
       <div className="space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="text-sm font-medium">Result</div>
           <div className="flex items-center gap-2">
-            {copyFeedback != null && (
-              <span className="text-muted-foreground text-xs">{copyFeedback}</span>
-            )}
+            <div className="text-sm font-medium">Result</div>
+            <motion.span
+              key={`result-state-${resultState}`}
+              className={[
+                'inline-flex h-6 items-center rounded-full border px-2.5 text-[10px] font-semibold tracking-[0.25px] uppercase',
+                resultState === 'success'
+                  ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                  : resultState === 'error'
+                    ? 'border-destructive/35 bg-destructive/10 text-destructive'
+                    : 'border-border/80 bg-muted/45 text-muted-foreground',
+              ].join(' ')}
+              initial={{ opacity: 0, scale: isReduced ? 1 : 0.96, y: isReduced ? 0 : 4 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ type: 'spring', stiffness: 340, damping: 30 }}
+            >
+              {resultStateLabel}
+            </motion.span>
+          </div>
+          <div className="flex items-center gap-2">
+            <AnimatePresence mode="wait" initial={false}>
+              {copyFeedback != null && (
+                <motion.span
+                  key={`copy-feedback-${copyFeedback}`}
+                  className="text-muted-foreground text-xs"
+                  initial={{ opacity: 0, y: isReduced ? 0 : 3 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: isReduced ? 0 : -3, transition: { duration: 0.14 } }}
+                  transition={{ type: 'spring', stiffness: 320, damping: 32 }}
+                >
+                  {copyFeedback}
+                </motion.span>
+              )}
+            </AnimatePresence>
             <Button
               type="button"
               variant="outline"
+              motion="bouncy"
               disabled={result == null}
               onClick={() => {
                 void copyAiOutput()
               }}
             >
-              复制 AI 输出
+              Copy AI Output
             </Button>
           </div>
         </div>
-        <pre className="bg-muted/40 overflow-auto rounded-md border p-3 text-xs leading-relaxed">
-          {result
-            ? JSON.stringify(result, null, 2)
-            : '选择媒体文件并发送后，这里会显示状态、流式解析结果和原始响应。\n\n如果出现 TypeError: Failed to fetch，请先检查 /api/cors-test/stream 请求是否到达 Worker，再查看返回状态与错误体。'}
-        </pre>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.pre
+            key={result == null ? 'result-empty' : `result-${result.at}`}
+            className="bg-muted/40 overflow-auto rounded-md border p-3 text-xs leading-relaxed"
+            initial={{ opacity: 0, y: isReduced ? 0 : 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: isReduced ? 0 : -4, transition: { duration: 0.16 } }}
+            transition={{ type: 'spring', stiffness: 320, damping: 34 }}
+          >
+            {result
+              ? JSON.stringify(result, null, 2)
+              : 'Select a media file and send the request. This panel will show request status, streamed parsing results, and the raw response.\n\nIf you see TypeError: Failed to fetch, first verify that /api/cors-test/stream reached the Worker, then inspect the returned status and error body.'}
+          </motion.pre>
+        </AnimatePresence>
       </div>
-    </section>
+    </motion.section>
   )
 }

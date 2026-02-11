@@ -42,7 +42,7 @@ export function EpisodeMatrixCard({
   totalEpisodes: number
 }) {
   return (
-    <Card className="bg-muted/20 shadow-xs mt-8 py-0 ring-border/60">
+    <Card className="bg-muted/20 shadow-xs mt-8 py-0 ring-border/60" interactive>
       <div className="flex items-center justify-between px-8 pt-8">
         <p className="text-foreground text-[16px] leading-6 font-semibold tracking-[-0.2px]">
           Episode Matrix
@@ -138,7 +138,7 @@ export function PrimaryIssueCard({
   suggestion: string
 }) {
   return (
-    <Card className="bg-muted/20 shadow-xs mt-4 py-0 ring-border/60">
+    <Card className="bg-muted/20 shadow-xs mt-4 py-0 ring-border/60" interactive>
       <div
         className="relative overflow-hidden rounded-xl"
         style={{
@@ -236,7 +236,7 @@ export function PacingIssueCard({
   pacingEpisode: number
 }) {
   return (
-    <Card className="bg-muted/20 shadow-xs mt-6 py-0 ring-border/60">
+    <Card className="bg-muted/20 shadow-xs mt-6 py-0 ring-border/60" interactive>
       <div className="px-8 py-7">
         <div className="flex flex-col gap-5">
           <div className="min-w-0">
@@ -286,7 +286,7 @@ export function NoIssueStateCard({
   }
 
   return (
-    <Card className="bg-muted/20 shadow-xs mt-4 py-0 ring-border/60">
+    <Card className="bg-muted/20 shadow-xs mt-4 py-0 ring-border/60" interactive>
       <div className="px-8 py-5">
         <div className="flex flex-wrap items-center gap-3">
           <span className="bg-background border-border/60 inline-flex h-[28px] items-center rounded-[8px] border px-3 text-[12px] font-semibold">
@@ -308,7 +308,7 @@ export function NoIssueStateCard({
 
 export function IntegrityCard({ summary }: { summary: string }) {
   return (
-    <Card className="bg-muted/20 shadow-xs mt-6 py-0 ring-border/60 opacity-90">
+    <Card className="bg-muted/20 shadow-xs mt-6 py-0 ring-border/60 opacity-90" interactive>
       <div className="px-8 py-7">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
           <div className="flex items-center gap-4">

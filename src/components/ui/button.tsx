@@ -2,7 +2,9 @@
 
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
+import { motion, useReducedMotion } from "motion/react"
 
+import { SPRING_PRESETS } from "@/lib/motion/tokens"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
@@ -35,16 +37,38 @@ const buttonVariants = cva(
   }
 )
 
+type ButtonMotionMode = "auto" | "off" | "bouncy"
+const MotionButtonPrimitive = motion.create(ButtonPrimitive) as any
+
 function Button({
   className,
   variant = "default",
   size = "default",
+  motion: motionMode = "auto",
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
+}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants> & {
+  motion?: ButtonMotionMode
+}) {
+  const isReduced = useReducedMotion() === true
+  const shouldAnimate = motionMode !== "off" && !isReduced && !props.disabled
+  const whileTap = shouldAnimate
+    ? motionMode === "bouncy"
+      ? { scale: 0.94 }
+      : { scale: 0.96 }
+    : undefined
+  const transition = shouldAnimate
+    ? motionMode === "bouncy"
+      ? SPRING_PRESETS.bouncy
+      : SPRING_PRESETS.snappy
+    : undefined
+
   return (
-    <ButtonPrimitive
+    <MotionButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
+      whileTap={whileTap}
+      whileHover={shouldAnimate ? { y: -1 } : undefined}
+      transition={transition}
       {...props}
     />
   )

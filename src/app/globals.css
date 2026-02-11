@@ -65,6 +65,14 @@
 }
 
 :root {
+  --motion-spring-snappy: 400 30 1;
+  --motion-spring-gentle: 300 35 1;
+  --motion-spring-bouncy: 500 25 0.8;
+  --motion-spring-smooth: 200 40 1.2;
+  --motion-duration-exit: 180ms;
+  --motion-ease-apple: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
   --background: oklch(1.0000 0 0);
   --foreground: oklch(0.1149 0 0);
   --card: oklch(1.0000 0 0);
@@ -120,6 +128,14 @@
 }
 
 .dark {
+  --motion-spring-snappy: 400 30 1;
+  --motion-spring-gentle: 300 35 1;
+  --motion-spring-bouncy: 500 25 0.8;
+  --motion-spring-smooth: 200 40 1.2;
+  --motion-duration-exit: 180ms;
+  --motion-ease-apple: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --motion-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
   --background: oklch(0.1149 0 0);
   --foreground: oklch(1.0000 0 0);
   --card: oklch(0.1448 0 0);
@@ -233,5 +249,17 @@ body {
 @layer utilities {
   .animate-analysis-bar {
     animation: analysis-bar 1.8s ease-in-out infinite;
+  }
+
+  .motion-icon-lift {
+    transition: transform var(--motion-duration-exit) var(--motion-ease-out);
+  }
+
+  .motion-icon-lift:hover {
+    transform: translateY(-1px) scale(1.03);
+  }
+
+  .motion-fade-fast {
+    transition: opacity var(--motion-duration-exit) var(--motion-ease-decelerate);
   }
 }

@@ -160,7 +160,7 @@ export default function ResultCharts({ emotion, conflict }: ResultChartsProps) {
 
   return (
     <div className="grid grid-cols-1 gap-6 pt-6 lg:grid-cols-2">
-      <Card className="shadow-xs">
+      <Card className="shadow-xs" interactive>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-3">
             <p className="text-foreground text-xs font-semibold tracking-[0.7px] uppercase">
@@ -217,7 +217,7 @@ export default function ResultCharts({ emotion, conflict }: ResultChartsProps) {
         </CardContent>
       </Card>
 
-      <Card className="shadow-xs">
+      <Card className="shadow-xs" interactive>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-3">
             <p className="text-foreground text-xs font-semibold tracking-[0.7px] uppercase">

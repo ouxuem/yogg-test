@@ -477,7 +477,7 @@ export function parseAndPreflight(rawInput: string): ParseResult {
     pushIssue(
       'fatal',
       'ERR_NO_EPISODE_HEADERS',
-      'No episode headers found. Please format input with EP/EPISODE/第X集.',
+      'No episode headers found. Please format input with EP/EPISODE/EP <N>.',
     )
   }
 

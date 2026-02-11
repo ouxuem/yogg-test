@@ -1,17 +1,19 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { useEffect, useMemo, useState } from 'react'
+import { SPRING_PRESETS } from '@/lib/motion/tokens'
 import DotGrid from '@/components/ui/dot-grid'
 import PrismaticBurst from '@/components/ui/prismatic-burst'
 
-const MAIN_TITLE = '构建场景中'
+const MAIN_TITLE = 'BUILDING SCENE'
 
 const DEFAULT_STATUS_MESSAGES = [
-  '正在建立连接',
-  '获取数据资源',
-  '解析页面结构',
-  '渲染视觉元素',
-  '准备就绪',
+  'Establishing connection',
+  'Fetching data resources',
+  'Parsing page structure',
+  'Rendering visual elements',
+  'Ready',
 ]
 
 const LOADER_DOT_COUNT = 5
@@ -25,21 +27,10 @@ export default function GlobalLoading({
 }) {
   const normalizedMessage = message?.trim() ?? ''
   const hasMessage = normalizedMessage.length > 0
+  const isReduced = useReducedMotion() === true
 
-  const [visibleChars, setVisibleChars] = useState(0)
   const [statusIndex, setStatusIndex] = useState(0)
   const [loaderIndex, setLoaderIndex] = useState(0)
-  const [showCursor, setShowCursor] = useState(true)
-  const [isReady, setIsReady] = useState(false)
-
-  useEffect(() => {
-    if (visibleChars < MAIN_TITLE.length) {
-      const timer = setTimeout(() => {
-        setVisibleChars(prev => prev + 1)
-      }, 120)
-      return () => clearTimeout(timer)
-    }
-  }, [visibleChars])
 
   useEffect(() => {
     setStatusIndex(0)
@@ -61,23 +52,17 @@ export default function GlobalLoading({
     return () => clearInterval(interval)
   }, [])
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setShowCursor(prev => !prev)
-    }, 530)
-    return () => clearInterval(interval)
-  }, [])
-
-  useEffect(() => {
-    if (visibleChars === MAIN_TITLE.length) {
-      const timer = setTimeout(() => setIsReady(true), 300)
-      return () => clearTimeout(timer)
-    }
-  }, [visibleChars])
+  const titleChars = useMemo(() => MAIN_TITLE.split(''), [])
+  const currentMessage = hasMessage ? normalizedMessage : DEFAULT_STATUS_MESSAGES[statusIndex]
 
   return (
     <div className="bg-background relative min-h-screen overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,color-mix(in_oklch,var(--primary)_14%,transparent),transparent_55%)]" />
+      <motion.div
+        className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,color-mix(in_oklch,var(--primary)_14%,transparent),transparent_55%)]"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={SPRING_PRESETS.smooth}
+      />
       <div className="absolute inset-0">
         <PrismaticBurst
           intensity={1.9}
@@ -110,53 +95,69 @@ export default function GlobalLoading({
       </div>
 
       <div className="relative z-10 flex min-h-screen items-center justify-center px-6">
-        <div className="w-full max-w-5xl flex flex-col items-center gap-8" data-testid={testId}>
-          <>
-            <div className="relative">
-              <h1 className={`text-center text-5xl leading-[1.08] font-semibold tracking-[-0.03em] sm:text-6xl md:text-7xl transition-all duration-700 ease-out ${isReady ? 'opacity-100' : 'opacity-90'}`}>
-                <span className="bg-linear-to-b from-white via-white to-white/70 bg-clip-text text-transparent">
-                  {MAIN_TITLE.split('').map((char, index) => (
-                    <span
-                      key={index}
-                      className={`inline-block transition-all duration-300 ${index < visibleChars ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}
-                      style={{ transitionDelay: `${index * 50}ms` }}
-                    >
-                      {char}
-                    </span>
-                  ))}
-                </span>
-                <span className={`inline-block ml-1 w-[3px] h-[0.9em] bg-white/80 align-middle transition-opacity duration-200 ${showCursor && visibleChars >= MAIN_TITLE.length ? 'opacity-100' : 'opacity-0'}`} />
-              </h1>
-              <div className={`absolute -bottom-3 left-1/2 -translate-x-1/2 h-[2px] bg-linear-to-r from-transparent via-primary/60 to-transparent transition-all duration-1000 ease-out ${isReady ? 'w-24 opacity-100' : 'w-0 opacity-0'}`} />
-            </div>
+        <motion.div
+          className="w-full max-w-5xl flex flex-col items-center gap-8"
+          data-testid={testId}
+          initial={{ opacity: 0, y: isReduced ? 0 : 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={SPRING_PRESETS.gentle}
+        >
+          <div className="relative">
+            <h1 className="text-center text-5xl leading-[1.08] font-semibold tracking-[-0.03em] sm:text-6xl md:text-7xl">
+              <span className="bg-linear-to-b from-white via-white to-white/70 bg-clip-text text-transparent">
+                {titleChars.map((char, index) => (
+                  <motion.span
+                    key={`${char}-${index}`}
+                    className="inline-block"
+                    initial={{ opacity: 0, y: isReduced ? 0 : 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ ...SPRING_PRESETS.gentle, delay: index * 0.06 }}
+                  >
+                    {char}
+                  </motion.span>
+                ))}
+              </span>
+            </h1>
+            <motion.div
+              className="absolute -bottom-3 left-1/2 -translate-x-1/2 h-[2px] bg-linear-to-r from-transparent via-primary/60 to-transparent"
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 96, opacity: 1 }}
+              transition={{ ...SPRING_PRESETS.smooth, delay: 0.24 }}
+            />
+          </div>
 
-            <div className="h-6 flex items-center justify-center">
-              <p key={hasMessage ? normalizedMessage : statusIndex} className="text-sm sm:text-base font-medium tracking-[0.12em] uppercase text-white/50 animate-fade-in-up">
-                {hasMessage ? normalizedMessage : DEFAULT_STATUS_MESSAGES[statusIndex]}
-              </p>
-            </div>
+          <div className="h-6 flex items-center justify-center">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.p
+                key={currentMessage}
+                className="text-sm sm:text-base font-medium tracking-[0.12em] uppercase text-white/50"
+                initial={{ opacity: 0, y: isReduced ? 0 : 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: isReduced ? 0 : -6 }}
+                transition={SPRING_PRESETS.gentle}
+              >
+                {currentMessage}
+              </motion.p>
+            </AnimatePresence>
+          </div>
 
-            <div className={`flex items-center gap-2 mt-4 transition-all duration-700 delay-500 ${isReady ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-              {Array.from({ length: LOADER_DOT_COUNT }).map((_, index) => (
-                <span
+          <div className="flex items-center gap-2 mt-4">
+            {Array.from({ length: LOADER_DOT_COUNT }).map((_, index) => {
+              const isActive = index === loaderIndex
+              return (
+                <motion.span
                   key={index}
-                  className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${index === loaderIndex ? 'bg-primary scale-125' : 'bg-white/18 scale-100'}`}
+                  className="w-1.5 h-1.5 rounded-full"
+                  animate={isActive
+                    ? { scale: 1.25, opacity: 1, backgroundColor: 'var(--primary)' }
+                    : { scale: 1, opacity: 0.4, backgroundColor: 'rgba(255,255,255,0.2)' }}
+                  transition={SPRING_PRESETS.snappy}
                 />
-              ))}
-            </div>
-          </>
-        </div>
+              )
+            })}
+          </div>
+        </motion.div>
       </div>
-
-      <style jsx>{`
-        @keyframes fade-in-up {
-          from { opacity: 0; transform: translateY(8px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in-up {
-          animation: fade-in-up 0.6s ease-out forwards;
-        }
-      `}</style>
     </div>
   )
 }
