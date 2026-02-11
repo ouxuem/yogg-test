@@ -46,12 +46,71 @@ interface ConflictChartDatum {
   int: number
 }
 
+function pickSparseEmotionTicks(data: EmotionChartDatum[]): string[] {
+  const count = data.length
+  if (count === 0)
+    return []
+
+  if (count === 1) {
+    const first = data[0]
+    if (first == null)
+      return []
+    return [first.epLabel]
+  }
+
+  if (count === 2) {
+    const first = data[0]
+    const second = data[1]
+    if (first == null)
+      return []
+    if (second == null)
+      return [first.epLabel]
+    return [first.epLabel, second.epLabel]
+  }
+
+  if (count === 3) {
+    const middle = data[1]
+    if (middle == null)
+      return []
+    return [middle.epLabel]
+  }
+
+  if (count === 4) {
+    const second = data[1]
+    const third = data[2]
+    if (second == null)
+      return []
+    if (third == null)
+      return [second.epLabel]
+    return [second.epLabel, third.epLabel]
+  }
+
+  const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value))
+  const maxIndex = count - 1
+  const rawIndices = [
+    Math.round((1 * maxIndex) / 4),
+    Math.round((2 * maxIndex) / 4),
+    Math.round((3 * maxIndex) / 4),
+  ]
+  const interiorIndices = [...new Set(rawIndices.map(index => clamp(index, 1, count - 2)))]
+    .sort((a, b) => a - b)
+
+  const ticks: string[] = []
+  for (const index of interiorIndices) {
+    const point = data[index]
+    if (point != null)
+      ticks.push(point.epLabel)
+  }
+  return ticks
+}
+
 export default function ResultCharts({ emotion, conflict }: ResultChartsProps) {
   const emotionData: EmotionChartDatum[] = emotion.series.map(item => ({
     episode: item.episode,
     epLabel: `Ep ${String(item.episode).padStart(2, '0')}`,
     value: item.value,
   }))
+  const emotionTicks = pickSparseEmotionTicks(emotionData)
 
   const anchorByEpisode = new Map(
     emotion.anchors.map(anchor => [anchor.episode, anchor.slot]),
@@ -120,7 +179,16 @@ export default function ResultCharts({ emotion, conflict }: ResultChartsProps) {
             <ResponsiveContainer>
               <AreaChart data={emotionData} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                <XAxis dataKey="epLabel" tickLine={false} axisLine={false} interval="preserveStartEnd" />
+                <XAxis
+                  dataKey="epLabel"
+                  ticks={emotionTicks}
+                  tickLine={false}
+                  axisLine={false}
+                  interval={0}
+                  padding={{ left: 12, right: 12 }}
+                  tickMargin={8}
+                  minTickGap={24}
+                />
                 <YAxis hide domain={[0, 100]} />
                 <Tooltip cursor={{ stroke: 'var(--border)' }} content={renderEmotionTooltip} />
                 <Area

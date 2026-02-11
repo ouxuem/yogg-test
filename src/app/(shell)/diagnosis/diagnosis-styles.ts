@@ -4,18 +4,18 @@ export function stateStyles(state: EpisodeState) {
   if (state === 'optimal') {
     const accent = 'var(--chart-4)'
     return {
-      backgroundColor: `color-mix(in oklab, ${accent} 10%, var(--background))`,
-      borderColor: `color-mix(in oklab, ${accent} 26%, var(--border))`,
-      color: `color-mix(in oklab, ${accent} 82%, var(--foreground))`,
+      backgroundColor: `color-mix(in oklab, ${accent} 12%, var(--background))`,
+      borderColor: `color-mix(in oklab, ${accent} 35%, var(--border))`,
+      color: `color-mix(in oklab, ${accent} 85%, var(--foreground))`,
     }
   }
 
   if (state === 'issue') {
-    const accent = 'var(--chart-3)'
+    const accent = 'var(--destructive)'
     return {
-      backgroundColor: `color-mix(in oklab, ${accent} 11%, var(--background))`,
-      borderColor: `color-mix(in oklab, ${accent} 30%, var(--border))`,
-      color: `color-mix(in oklab, ${accent} 74%, var(--foreground))`,
+      backgroundColor: `color-mix(in oklab, ${accent} 10%, var(--background))`,
+      borderColor: `color-mix(in oklab, ${accent} 40%, var(--border))`,
+      color: `color-mix(in oklab, ${accent} 80%, var(--foreground))`,
     }
   }
 
@@ -28,8 +28,8 @@ export function stateStyles(state: EpisodeState) {
   }
 
   return {
-    backgroundColor: `color-mix(in oklab, var(--background) 96%, var(--muted) 4%)`,
-    borderColor: `color-mix(in oklab, var(--border) 65%, transparent)`,
-    color: `color-mix(in oklab, var(--muted-foreground) 65%, var(--foreground))`,
+    backgroundColor: `color-mix(in oklab, var(--muted) 25%, var(--background))`,
+    borderColor: `color-mix(in oklab, var(--muted-foreground) 25%, var(--border))`,
+    color: `color-mix(in oklab, var(--muted-foreground) 75%, var(--foreground))`,
   }
 }

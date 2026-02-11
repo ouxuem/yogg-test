@@ -1,5 +1,8 @@
 'use client'
 
+import type { ReactNode } from 'react'
+
+/*
 import type { ComponentType, CSSProperties, ReactNode } from 'react'
 import { RiFileTextLine, RiHome5Line, RiSearchLine, RiShieldKeyholeLine } from '@remixicon/react'
 import Link from 'next/link'
@@ -40,12 +43,15 @@ function isItemActive(pathname: string, href: string) {
     return pathname === '/'
   return pathname === href || pathname.startsWith(`${href}/`)
 }
+*/
 
 export default function AppShell({ children }: { children: ReactNode }) {
-  const pathname = usePathname()
+  // const pathname = usePathname()
 
   return (
     <div data-testid="app-shell" className="contents">
+      {children}
+      {/*
       <SidebarProvider defaultOpen style={SIDEBAR_STYLE}>
         <Sidebar className="border-sidebar-border/60 border-r" collapsible="icon">
           <SidebarHeader className="border-sidebar-border/60 gap-3 border-b p-2">
@@ -94,6 +100,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
         </SidebarInset>
       </SidebarProvider>
+      */}
     </div>
   )
 }

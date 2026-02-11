@@ -3,7 +3,7 @@ import Waves from '@/components/ui/waves'
 
 export default function Page() {
   return (
-    <main className="relative flex h-full min-h-0 flex-1 items-center overflow-hidden">
+    <main className="relative flex min-h-svh flex-1 items-center overflow-hidden">
       <Waves
         lineColor="var(--muted-foreground)"
         lineOpacity={0.2}

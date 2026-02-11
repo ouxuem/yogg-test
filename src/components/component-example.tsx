@@ -1,7 +1,7 @@
 'use client'
 
 import type { ChangeEvent } from 'react'
-import { RiFileTextLine, RiPaletteLine } from '@remixicon/react'
+import { RiFileTextLine } from '@remixicon/react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Button } from '@/components/ui/button'
@@ -339,20 +339,11 @@ function IdeaComposerCard({
                   data-testid="analysis-input"
                   value={value}
                   onChange={event => onChange(event.target.value)}
-                  placeholder="Start with the simplest idea..."
+                  placeholder="Paste your script or describe your story..."
                   className="hero-scroll min-h-0! h-full field-sizing-fixed resize-none overflow-y-auto border-0 bg-transparent font-mono text-[30px] leading-[20.63px] text-foreground shadow-none ring-0 placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:text-[15px]"
                 />
               </div>
               <div className="action-row flex h-[52px] items-center justify-end gap-2">
-                <Button
-                  type="button"
-                  size="icon-lg"
-                  variant="outline"
-                  className="bg-background text-foreground hover:bg-muted/40 size-10 rounded-full border-border/70 shadow-xs"
-                  aria-label="Open palette"
-                >
-                  <RiPaletteLine className="size-[18px]" />
-                </Button>
                 <Button
                   type="button"
                   size="icon-lg"

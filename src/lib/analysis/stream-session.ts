@@ -59,6 +59,26 @@ interface StreamingAccumulator {
   upstreamError: string | null
 }
 
+interface NormalizedEpisodeRow {
+  episode: number
+  health: 'GOOD' | 'FAIR' | 'PEAK'
+  primaryHookType: string
+  aiHighlight: string
+}
+
+interface NormalizedDiagnosisMatrixItem {
+  episode: number
+  state: 'optimal' | 'issue' | 'neutral'
+}
+
+interface NormalizedEmotionSeriesPoint {
+  episode: number
+  value: number
+}
+
+const DEFAULT_AI_HIGHLIGHT = 'Episode summary unavailable. Added by client normalization.'
+const MAX_NORMALIZED_EPISODES = 1000
+
 const sessions = new Map<string, StreamInternalState>()
 const listeners = new Map<string, Set<() => void>>()
 
@@ -377,12 +397,249 @@ function parseStructuredPayload(text: string):
     const { meta: _meta, ...rest } = normalized
     normalized = rest
   }
+  normalized = normalizeNetworkScorePayload(normalized)
 
   const error = validateNetworkScorePayload(normalized)
   if (error != null)
     return { ok: false, error: `Stream completed but structured output is invalid: ${error}` }
 
   return { ok: true, value: normalized as NetworkScorePayload }
+}
+
+function normalizeNetworkScorePayload(value: unknown) {
+  if (!isRecord(value) || !isRecord(value.presentation))
+    return value
+
+  const normalizedScore = normalizeScoreOverall(value.score)
+  const presentation = value.presentation
+  const charts = isRecord(presentation.charts) ? presentation.charts : null
+  const emotion = charts != null && isRecord(charts.emotion) ? charts.emotion : null
+  const diagnosis = isRecord(presentation.diagnosis) ? presentation.diagnosis : null
+
+  const normalizedRows = normalizeEpisodeRows(presentation.episodeRows)
+  const normalizedMatrix = normalizeDiagnosisMatrix(diagnosis?.matrix)
+  const normalizedSeries = normalizeEmotionSeries(emotion?.series)
+
+  const totalEpisodes = inferTotalEpisodes(normalizedRows, normalizedMatrix, normalizedSeries)
+  if (totalEpisodes <= 0)
+    return value
+
+  const filledRows = fillEpisodeRows(normalizedRows, totalEpisodes)
+  const detailEpisodes = collectDetailEpisodes(diagnosis?.details, totalEpisodes)
+  const filledMatrix = fillDiagnosisMatrix(normalizedMatrix, detailEpisodes, totalEpisodes)
+  const filledSeries = fillEmotionSeries(normalizedSeries, totalEpisodes)
+
+  const nextPresentation = {
+    ...presentation,
+    episodeRows: filledRows,
+    charts: charts == null || emotion == null
+      ? presentation.charts
+      : {
+          ...charts,
+          emotion: {
+            ...emotion,
+            series: filledSeries,
+          },
+        },
+    diagnosis: diagnosis == null
+      ? presentation.diagnosis
+      : {
+          ...diagnosis,
+          matrix: filledMatrix,
+        },
+  }
+
+  return {
+    ...value,
+    score: normalizedScore,
+    presentation: nextPresentation,
+  }
+}
+
+function normalizeScoreOverall(value: unknown) {
+  if (!isRecord(value))
+    return value
+  if (!isFiniteNumber(value.total_110) || !isInRange(value.total_110, 0, 110))
+    return value
+
+  const expectedOverall = Math.round((value.total_110 / 110) * 100)
+  if (value.overall_100 === expectedOverall)
+    return value
+
+  return {
+    ...value,
+    overall_100: expectedOverall,
+  }
+}
+
+function inferTotalEpisodes(
+  rows: NormalizedEpisodeRow[],
+  matrix: NormalizedDiagnosisMatrixItem[],
+  series: NormalizedEmotionSeriesPoint[],
+) {
+  const maxRow = rows.reduce((max, row) => Math.max(max, row.episode), 0)
+  const maxMatrix = matrix.reduce((max, item) => Math.max(max, item.episode), 0)
+  const maxSeries = series.reduce((max, item) => Math.max(max, item.episode), 0)
+  const inferred = Math.max(maxRow, maxMatrix, maxSeries)
+  if (inferred <= 0)
+    return 0
+  return Math.min(MAX_NORMALIZED_EPISODES, inferred)
+}
+
+function normalizeEpisodeRows(value: unknown): NormalizedEpisodeRow[] {
+  if (!Array.isArray(value))
+    return []
+
+  const byEpisode = new Map<number, NormalizedEpisodeRow>()
+  for (const rawRow of value) {
+    if (!isRecord(rawRow) || !isPositiveInteger(rawRow.episode))
+      continue
+    if (byEpisode.has(rawRow.episode))
+      continue
+
+    const health: NormalizedEpisodeRow['health']
+      = isOneOf(rawRow.health, ['GOOD', 'FAIR', 'PEAK']) ? rawRow.health as NormalizedEpisodeRow['health'] : 'FAIR'
+    const primaryHookType = isNonEmptyString(rawRow.primaryHookType) ? rawRow.primaryHookType as string : 'None'
+    const aiHighlight = isNonEmptyString(rawRow.aiHighlight) ? rawRow.aiHighlight as string : DEFAULT_AI_HIGHLIGHT
+
+    byEpisode.set(rawRow.episode, {
+      episode: rawRow.episode,
+      health,
+      primaryHookType,
+      aiHighlight,
+    })
+  }
+
+  return [...byEpisode.values()].sort((a, b) => a.episode - b.episode)
+}
+
+function fillEpisodeRows(rows: NormalizedEpisodeRow[], totalEpisodes: number): NormalizedEpisodeRow[] {
+  const byEpisode = new Map(rows.map(row => [row.episode, row]))
+  const filled: NormalizedEpisodeRow[] = []
+
+  for (let episode = 1; episode <= totalEpisodes; episode++) {
+    const existing = byEpisode.get(episode)
+    if (existing != null) {
+      filled.push(existing)
+      continue
+    }
+
+    filled.push({
+      episode,
+      health: 'FAIR',
+      primaryHookType: 'None',
+      aiHighlight: DEFAULT_AI_HIGHLIGHT,
+    })
+  }
+
+  return filled
+}
+
+function normalizeDiagnosisMatrix(value: unknown): NormalizedDiagnosisMatrixItem[] {
+  if (!Array.isArray(value))
+    return []
+
+  const byEpisode = new Map<number, NormalizedDiagnosisMatrixItem>()
+  for (const rawItem of value) {
+    if (!isRecord(rawItem) || !isPositiveInteger(rawItem.episode))
+      continue
+    if (byEpisode.has(rawItem.episode))
+      continue
+
+    const state: NormalizedDiagnosisMatrixItem['state']
+      = isOneOf(rawItem.state, ['optimal', 'issue', 'neutral']) ? rawItem.state as NormalizedDiagnosisMatrixItem['state'] : 'neutral'
+    byEpisode.set(rawItem.episode, {
+      episode: rawItem.episode,
+      state,
+    })
+  }
+
+  return [...byEpisode.values()].sort((a, b) => a.episode - b.episode)
+}
+
+function collectDetailEpisodes(value: unknown, totalEpisodes: number): Set<number> {
+  if (!Array.isArray(value))
+    return new Set<number>()
+
+  const episodes = new Set<number>()
+  for (const rawDetail of value) {
+    if (!isRecord(rawDetail) || !isPositiveInteger(rawDetail.episode))
+      continue
+    if (rawDetail.episode > totalEpisodes)
+      continue
+    episodes.add(rawDetail.episode)
+  }
+
+  return episodes
+}
+
+function fillDiagnosisMatrix(
+  matrix: NormalizedDiagnosisMatrixItem[],
+  detailEpisodes: Set<number>,
+  totalEpisodes: number,
+): NormalizedDiagnosisMatrixItem[] {
+  const byEpisode = new Map(matrix.map(item => [item.episode, item]))
+  const filled: NormalizedDiagnosisMatrixItem[] = []
+
+  for (let episode = 1; episode <= totalEpisodes; episode++) {
+    const existing = byEpisode.get(episode)
+    if (existing == null) {
+      filled.push({ episode, state: 'neutral' })
+      continue
+    }
+
+    if (existing.state === 'optimal' && detailEpisodes.has(episode)) {
+      filled.push({ episode, state: 'neutral' })
+      continue
+    }
+    filled.push(existing)
+  }
+
+  return filled
+}
+
+function normalizeEmotionSeries(value: unknown): NormalizedEmotionSeriesPoint[] {
+  if (!Array.isArray(value))
+    return []
+
+  const byEpisode = new Map<number, NormalizedEmotionSeriesPoint>()
+  for (const rawPoint of value) {
+    if (!isRecord(rawPoint) || !isPositiveInteger(rawPoint.episode))
+      continue
+    if (byEpisode.has(rawPoint.episode))
+      continue
+
+    byEpisode.set(rawPoint.episode, {
+      episode: rawPoint.episode,
+      value: clampNumber(rawPoint.value, 0, 100, 0),
+    })
+  }
+
+  return [...byEpisode.values()].sort((a, b) => a.episode - b.episode)
+}
+
+function fillEmotionSeries(series: NormalizedEmotionSeriesPoint[], totalEpisodes: number): NormalizedEmotionSeriesPoint[] {
+  const byEpisode = new Map(series.map(point => [point.episode, point]))
+  const filled: NormalizedEmotionSeriesPoint[] = []
+  let lastValue = 0
+
+  for (let episode = 1; episode <= totalEpisodes; episode++) {
+    const existing = byEpisode.get(episode)
+    if (existing != null) {
+      lastValue = existing.value
+      filled.push(existing)
+      continue
+    }
+    filled.push({ episode, value: lastValue })
+  }
+
+  return filled
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number) {
+  if (!isFiniteNumber(value))
+    return fallback
+  return Math.max(min, Math.min(max, value))
 }
 
 function validateNetworkScorePayload(value: unknown) {

@@ -1,9 +1,7 @@
 import type { Context } from 'hono'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
-import { z } from 'zod'
-import { GEMINI_RESPONSE_SCHEMA } from './cors-test/structured-schema'
-import { evaluateAiScore } from './score/score-ai-evaluator'
+import { GEMINI_RESPONSE_SCHEMA } from './schema/structured-schema'
 
 interface CloudflareBindings {
   ZENAI_LLM_API_KEY?: string
@@ -16,32 +14,6 @@ interface UploadFileLike {
   type?: string
   name?: string
 }
-
-const requestSchema = z.object({
-  episodeBriefs: z.array(z.object({
-    episode: z.number().int().min(1),
-    opening: z.string().trim().min(1).max(1200),
-    ending: z.string().trim().min(1).max(1200),
-    keyEvents: z.array(z.string().trim().min(1).max(220)).min(3).max(6),
-    tokenCount: z.number().int().min(1),
-    wordCount: z.number().int().min(1),
-    emotionRaw: z.number().min(0),
-    conflictExtRaw: z.number().min(0),
-    conflictIntRaw: z.number().min(0),
-    paywallFlag: z.boolean(),
-  })).min(1).max(120),
-  ingest: z.object({
-    declaredTotalEpisodes: z.number().int().min(1).optional(),
-    inferredTotalEpisodes: z.number().int().min(0),
-    totalEpisodesForScoring: z.number().int().min(1),
-    observedEpisodeCount: z.number().int().min(1),
-    completionState: z.enum(['completed', 'incomplete', 'unknown']),
-    coverageRatio: z.number().min(0).max(1),
-    mode: z.enum(['official', 'provisional']),
-  }),
-  language: z.enum(['en', 'zh']),
-  tokenizer: z.enum(['whitespace', 'intl-segmenter', 'char-fallback']),
-})
 
 const SCORE_STREAM_ROUTE = '/api/score/stream'
 const LEGACY_CORS_TEST_ROUTE = '/api/cors-test/stream'
@@ -68,14 +40,30 @@ Hard constraints:
 - anchors.slot: Start, Mid, End
 - conflict.phases order: Start, Inc., Rise, Climax, Fall, Res.
 
+Episode counting protocol:
+- N is episode count, not page count. Never infer N from PDF page number.
+- Detect explicit episode markers first (EP, EPISODE, 第X集, E01, E1).
+- If explicit markers exist, set N from marker sequence, not from document length/pages.
+- Treat isolated high episode numbers as outliers when they conflict with the main sequence.
+- Do not output any episode index above inferred chapter-based N.
+- If explicit markers are weak/missing, infer N from recurring chapter boundaries and narrative segmentation, never from pages.
+- Before final JSON, run a self-check: N must be chapter-based and episode-indexed arrays must align to 1..N.
+
 Coverage rules:
 - If episodes are detectable, output full coverage for 1..N in:
   emotion.series, episodeRows, diagnosis.matrix.
 - If not detectable, synthesize 1..6 full coverage.
+- For episode-indexed arrays, episode numbers must be continuous and unique:
+  start at 1, end at N, no gaps, no duplicates.
+- Let N = episodeRows.length, and enforce:
+  emotion.series.length = N, diagnosis.matrix.length = N.
+- In episodeRows/emotion.series/diagnosis.matrix:
+  episode must be integer in [1, N], and arrays must be sorted by episode asc.
 
 Diagnosis rules:
 - diagnosis.details must include only issue/neutral episodes.
 - No detail item for optimal episodes.
+- diagnosis.details.episode and diagnosis.overview.pacingFocusEpisode must be in [1, N].
 
 Scoring consistency:
 - total_110 = pay + story + market + potential
@@ -86,12 +74,20 @@ Scoring consistency:
 
 Chart constraints:
 - emotion.anchors exactly 3: Start, Mid, End
+- emotion.anchors episode must be in [1, N]
 - conflict.phases exactly 6 in fixed order
+- conflict.phases ext/int in 0..100
 - emotion value and signalPercent in 0..100
 - pacingScore in 0..10
 
 If primary hook is unclear, use "None".
+Never output null, NaN, Infinity, or empty strings for required fields.
 Keep producer-facing text concise and practical.`
+
+const PDF_COUNTING_GUARD_PROMPT = `PDF handling rule:
+- This is a paginated PDF. A page is a layout unit, not an episode.
+- Multiple pages can belong to one episode; one page must not create one episode.
+- Determine N by chapter/episode structure in content, never by page count.`
 
 const EXTENSION_MIME_MAP: Record<string, string> = {
   '.pdf': 'application/pdf',
@@ -113,10 +109,6 @@ app.get('/', (c) => {
   return c.text('Hello Hono!')
 })
 
-app.options('/api/score', (c) => {
-  return c.body(null, 204)
-})
-
 app.options(SCORE_STREAM_ROUTE, (c) => {
   return c.body(null, 204)
 })
@@ -125,62 +117,8 @@ app.options(LEGACY_CORS_TEST_ROUTE, (c) => {
   return c.body(null, 204)
 })
 
-app.post('/api/score', async (c) => {
-  if (!hasApiKey(c.env)) {
-    return c.json(
-      { error: { code: 'ERR_SERVER_CONFIG', message: 'ZENAI_LLM_API_KEY is not configured.' } },
-      500,
-    )
-  }
-
-  let body: unknown
-  try {
-    body = await c.req.json()
-  }
-  catch {
-    return c.json(
-      { error: { code: 'ERR_BAD_REQUEST', message: 'Request body must be valid JSON.' } },
-      400,
-    )
-  }
-
-  const parsed = requestSchema.safeParse(body)
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0]
-    return c.json(
-      { error: { code: 'ERR_BAD_REQUEST', message: issue?.message ?? 'Invalid request payload.' } },
-      400,
-    )
-  }
-
-  const episodeBriefs = normalizeEpisodeBriefs(parsed.data.episodeBriefs)
-
-  try {
-    const score = await evaluateAiScore({
-      env: c.env,
-      episodeBriefs,
-      language: parsed.data.language,
-      tokenizer: parsed.data.tokenizer,
-      ingest: parsed.data.ingest,
-    })
-
-    return c.json({ score }, 200)
-  }
-  catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    return c.json(
-      { error: { code: 'ERR_AI_EVAL', message } },
-      500,
-    )
-  }
-})
-
 app.post(SCORE_STREAM_ROUTE, async c => createScoreStreamResponse(c))
 app.post(LEGACY_CORS_TEST_ROUTE, async c => createScoreStreamResponse(c))
-
-function hasApiKey(env: CloudflareBindings) {
-  return getApiKey(env) != null
-}
 
 function getApiKey(env: CloudflareBindings) {
   const key = env.ZENAI_LLM_API_KEY?.trim()
@@ -251,37 +189,6 @@ function toErrorMessage(error: unknown) {
 
 export default app
 
-function normalizeEpisodeBriefs(
-  episodeBriefs: Array<{
-    episode: number
-    opening: string
-    ending: string
-    keyEvents: string[]
-    tokenCount: number
-    wordCount: number
-    emotionRaw: number
-    conflictExtRaw: number
-    conflictIntRaw: number
-    paywallFlag: boolean
-  }>,
-) {
-  const sorted = [...episodeBriefs].sort((a, b) => a.episode - b.episode)
-  const seen = new Set<number>()
-
-  for (const item of sorted) {
-    if (item.episode < 1)
-      throw new Error('episodeBriefs episode must be >= 1.')
-    if (seen.has(item.episode))
-      throw new Error(`Duplicate episodeBriefs episode: ${item.episode}.`)
-    seen.add(item.episode)
-  }
-
-  return sorted.map((item, index) => ({
-    ...item,
-    episode: index + 1,
-  }))
-}
-
 async function createScoreStreamResponse(c: Context<{ Bindings: CloudflareBindings }>) {
   const apiKey = getApiKey(c.env)
   if (apiKey == null) {
@@ -322,7 +229,7 @@ async function createScoreStreamResponse(c: Context<{ Bindings: CloudflareBindin
     )
   }
 
-  const userParts: Array<Record<string, unknown>> = [{ text: SCORING_SYSTEM_PROMPT }]
+  const userParts: Array<Record<string, unknown>> = []
 
   if (file != null) {
     const mimeType = resolveUploadMimeType(file)
@@ -360,6 +267,8 @@ async function createScoreStreamResponse(c: Context<{ Bindings: CloudflareBindin
       userParts.push({ text })
     }
     else {
+      if (mimeType === 'application/pdf')
+        userParts.push({ text: PDF_COUNTING_GUARD_PROMPT })
       userParts.push({
         inlineData: {
           mimeType,
@@ -375,6 +284,9 @@ async function createScoreStreamResponse(c: Context<{ Bindings: CloudflareBindin
   const endpointBase = normalizeEndpointBase(c.env.ZENAI_LLM_API_BASE_URL)
   const upstreamUrl = buildStreamGenerateContentUrl(endpointBase, GEMINI_FIXED_MODEL)
   const upstreamBody = {
+    systemInstruction: {
+      parts: [{ text: SCORING_SYSTEM_PROMPT }],
+    },
     contents: [
       {
         role: 'user',
@@ -382,7 +294,7 @@ async function createScoreStreamResponse(c: Context<{ Bindings: CloudflareBindin
       },
     ],
     generationConfig: {
-      temperature: 0.2,
+      temperature: 0.1,
       responseMimeType: STRUCTURED_RESPONSE_MIME_TYPE,
       responseSchema: GEMINI_RESPONSE_SCHEMA,
       thinkingConfig: {

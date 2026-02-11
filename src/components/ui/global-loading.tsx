@@ -10,7 +10,7 @@ export default function GlobalLoading({
 }) {
   return (
     <div className="bg-background relative min-h-screen overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,rgba(120,160,135,0.14),rgba(255,255,255,0)_55%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,color-mix(in_oklch,var(--primary)_14%,transparent),transparent_55%)]" />
       <div className="absolute inset-0">
         <PrismaticBurst
           intensity={1.9}
@@ -20,13 +20,13 @@ export default function GlobalLoading({
           hoverDampness={0.35}
           rayCount={11}
           colors={[
-            '#2f5147',
-            '#b76338',
-            '#9bb67d',
-            '#4f7a60',
-            '#2d5a46',
-            '#d7e5cf',
-            '#8eaa97',
+            'var(--primary)',
+            'var(--accent)',
+            'var(--ring)',
+            'color-mix(in oklch, var(--primary) 80%, var(--background))',
+            'color-mix(in oklch, var(--accent) 70%, var(--primary))',
+            'color-mix(in oklch, var(--primary) 60%, transparent)',
+            'color-mix(in oklch, var(--ring) 50%, var(--background))',
           ]}
           mixBlendMode="multiply"
         />
@@ -35,8 +35,8 @@ export default function GlobalLoading({
         <DotGrid
           dotSize={2.8}
           gap={16}
-          baseColor="#afbeb4"
-          activeColor="#4f6f60"
+          baseColor="var(--muted-foreground)"
+          activeColor="var(--primary)"
           proximity={150}
           pushStrength={0.05}
           velocityInfluence={0.01}

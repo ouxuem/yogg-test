@@ -59,24 +59,30 @@ export function EpisodeMatrixCard({
           {matrix.map((item) => {
             const episode = item.episode
             const isSelected = episode != null && episode === selectedEpisode
-            const isDisabled = episode == null
+            const isEmpty = item.state === 'empty'
+            const isOptimal = item.state === 'optimal'
+            const isClickable = !isEmpty && !isOptimal
+
             const selectionClass = isSelected
               ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
-              : 'hover:bg-muted/20'
+              : isClickable
+                ? 'hover:bg-muted/20 cursor-pointer'
+                : ''
+
             const style = stateStyles(item.state)
             return (
               <button
                 key={episode != null ? `ep-${episode}` : `slot-${item.slot}`}
                 type="button"
-                disabled={isDisabled}
+                disabled={isEmpty || isOptimal}
                 onClick={() => {
-                  if (episode == null)
+                  if (episode == null || !isClickable)
                     return
                   setSelectedEpisode(episode)
                 }}
                 className={[
                   'h-[83.5px] w-[83.5px] rounded-[10px] border text-[12px] font-semibold tabular-nums shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_6%,transparent)] transition',
-                  'disabled:cursor-not-allowed disabled:opacity-60',
+                  isEmpty && 'disabled:cursor-not-allowed disabled:opacity-60',
                   selectionClass,
                 ].join(' ')}
                 style={style}

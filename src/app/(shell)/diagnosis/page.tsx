@@ -62,12 +62,23 @@ export default function DiagnosisPage() {
     return diagnosis?.matrix.length ?? 0
   }, [diagnosis?.matrix.length, run?.meta.totalEpisodes])
 
-  const [selectedEpisode, setSelectedEpisode] = useState(() => {
+  const [userSelectedEpisode, setSelectedEpisode] = useState<number | null>(() => {
     const fromQuery = Number(searchParams.get('ep'))
     if (Number.isFinite(fromQuery) && fromQuery >= 1)
       return fromQuery
-    return 1
+    return null
   })
+
+  const selectedEpisode = useMemo(() => {
+    if (userSelectedEpisode != null)
+      return userSelectedEpisode
+    const matrix = diagnosis?.matrix
+    if (matrix == null || matrix.length === 0)
+      return 1
+    const firstIssue = matrix.find(item => item.state === 'issue')
+    const firstNeutral = matrix.find(item => item.state === 'neutral')
+    return firstIssue?.episode ?? firstNeutral?.episode ?? 1
+  }, [userSelectedEpisode, diagnosis?.matrix])
 
   const collapsedSlots = 24
   const canExpand = totalEpisodes > collapsedSlots
