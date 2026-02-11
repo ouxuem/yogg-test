@@ -3,7 +3,7 @@
 import type { ChangeEvent } from 'react'
 import { RiFileTextLine } from '@remixicon/react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { Button } from '@/components/ui/button'
 import GlobalLoading from '@/components/ui/global-loading'
@@ -133,9 +133,20 @@ export function ComponentExample() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const canAnalyze = useMemo(() => input.trim().length > 0, [input])
   const isReduced = useReducedMotion() === true
+  const pathname = usePathname()
+  const [editorReady, setEditorReady] = useState(false)
   const staggerContainer = useMemo(() => getStaggerContainerVariant(isReduced), [isReduced])
   const staggerItem = useMemo(() => getStaggerItemVariant(isReduced), [isReduced])
   const router = useRouter()
+
+  useEffect(() => {
+    const resetTimer = window.setTimeout(() => setEditorReady(false), 0)
+    const readyTimer = window.setTimeout(() => setEditorReady(true), 120)
+    return () => {
+      window.clearTimeout(resetTimer)
+      window.clearTimeout(readyTimer)
+    }
+  }, [pathname])
 
   const streamSnapshot = useSyncExternalStore(
     (callback) => {
@@ -265,7 +276,7 @@ export function ComponentExample() {
         <motion.div variants={staggerItem}>
           <HeroHeading />
         </motion.div>
-        <motion.div variants={staggerItem}>
+        <div>
           <IdeaComposerCard
             value={input}
             onChange={setInput}
@@ -277,8 +288,9 @@ export function ComponentExample() {
             onAnalyze={onAnalyze}
             isSubmitting={isSubmitting}
             isReduced={isReduced}
+            editorReady={editorReady}
           />
-        </motion.div>
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -339,6 +351,7 @@ function IdeaComposerCard({
   uiErrors,
   isSubmitting,
   isReduced,
+  editorReady,
 }: {
   value: string
   onChange: (nextValue: string) => void
@@ -350,6 +363,7 @@ function IdeaComposerCard({
   uiErrors: UiError[]
   isSubmitting: boolean
   isReduced: boolean
+  editorReady: boolean
 }) {
   const combinedErrors = uiErrors.slice(0, 3)
   const isActionable = canAnalyze && !isImporting && !isSubmitting
@@ -358,21 +372,27 @@ function IdeaComposerCard({
     <div className="relative w-full max-w-[816px]">
       <motion.div
         className="absolute inset-x-[11px] -bottom-[15px] top-[8px] rounded-[32px] border border-border/60 bg-muted/60 shadow-xs"
-        initial={{ opacity: 0, x: isReduced ? 0 : -80, scale: isReduced ? 1 : 0.96, rotate: isReduced ? 0 : -4 }}
-        animate={{ opacity: 1, x: 0, scale: 1, rotate: 0 }}
-        transition={SPRING_PRESETS.smooth}
+        initial={false}
+        animate={editorReady
+          ? { opacity: 1, x: 0, scale: 1, rotate: -0.5 }
+          : { opacity: 0, x: isReduced ? 0 : -220, scale: isReduced ? 1 : 0.86, rotate: isReduced ? 0 : -12 }}
+        transition={{ ...SPRING_PRESETS.smooth, duration: 0.95 }}
       />
       <motion.div
         className="absolute inset-x-[5px] -bottom-[8px] top-[4px] rounded-[32px] border border-border/60 bg-muted/55 shadow-2xs"
-        initial={{ opacity: 0, x: isReduced ? 0 : 80, scale: isReduced ? 1 : 0.96, rotate: isReduced ? 0 : 4 }}
-        animate={{ opacity: 1, x: 0, scale: 1, rotate: 0 }}
-        transition={{ ...SPRING_PRESETS.smooth, delay: 0.06 }}
+        initial={false}
+        animate={editorReady
+          ? { opacity: 1, x: 0, scale: 1, rotate: 0.3 }
+          : { opacity: 0, x: isReduced ? 0 : 220, scale: isReduced ? 1 : 0.86, rotate: isReduced ? 0 : 12 }}
+        transition={{ ...SPRING_PRESETS.smooth, duration: 1.05, delay: 0.08 }}
       />
       <motion.div
         className="relative rounded-[32px] border border-border/70 bg-background/80 p-[10px] shadow-sm backdrop-blur-[2px]"
-        initial={{ opacity: 0, y: isReduced ? 0 : 24, scale: isReduced ? 1 : 0.98 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ ...SPRING_PRESETS.gentle, delay: 0.1 }}
+        initial={false}
+        animate={editorReady
+          ? { opacity: 1, y: 0, scale: 1 }
+          : { opacity: 0, y: isReduced ? 0 : 40, scale: isReduced ? 1 : 0.95 }}
+        transition={{ ...SPRING_PRESETS.gentle, duration: 0.9, delay: 0.18 }}
       >
         <div
           className="relative overflow-hidden rounded-[24px] border border-border/60 p-[2px]"
@@ -431,7 +451,7 @@ function IdeaComposerCard({
                   value={value}
                   onChange={event => onChange(event.target.value)}
                   placeholder="Paste your script or describe your story..."
-                  className="hero-scroll min-h-0! h-full field-sizing-fixed resize-none overflow-y-auto border-0 bg-transparent font-mono text-[30px] leading-[20.63px] text-foreground shadow-none ring-0 placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0 md:text-[15px]"
+                  className="hero-scroll min-h-0! h-full field-sizing-fixed resize-none overflow-y-auto border-0 bg-transparent font-mono text-[14px] leading-[1.45] text-foreground shadow-none ring-0 placeholder:text-[13px] placeholder:leading-[1.45] placeholder:text-muted-foreground/75 focus-visible:border-0 focus-visible:ring-0 md:text-[15px] md:leading-[20.63px] md:placeholder:text-[15px] md:placeholder:leading-[20.63px]"
                 />
               </div>
               <motion.div

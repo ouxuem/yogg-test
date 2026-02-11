@@ -219,7 +219,7 @@ export default function DiagnosisPage() {
   return (
     <main className="bg-background min-h-svh" data-testid="diagnosis-page">
       <div className="border-border/60 bg-background/90 sticky top-0 z-20 border-b backdrop-blur">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
             <span className="text-foreground text-base font-semibold tracking-tight">ScriptAI</span>
           </div>
@@ -232,7 +232,7 @@ export default function DiagnosisPage() {
       </div>
 
       <motion.div
-        className="mx-auto w-full max-w-6xl px-6 pb-16 pt-10"
+        className="mx-auto w-full max-w-6xl px-4 pb-12 pt-6 sm:px-6 sm:pb-16 sm:pt-10"
         initial={{ opacity: 0, y: isReduced ? 0 : 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: 'spring', stiffness: 260, damping: 34 }}
@@ -245,12 +245,12 @@ export default function DiagnosisPage() {
 
             <div className="mt-2 grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
               <div className="min-w-0">
-                <h1 className="text-foreground text-[48px] leading-[48px] font-semibold tracking-[-1.2px]">
+                <h1 className="text-foreground text-[34px] leading-[38px] font-semibold tracking-[-0.8px] sm:text-[48px] sm:leading-[48px] sm:tracking-[-1.2px]">
                   Episode Structural Diagnosis
                 </h1>
 
-                <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-2 text-[18px] leading-[28px]">
-                  <RiCalendarLine className="size-5 text-primary" aria-hidden="true" />
+                <div className="text-muted-foreground mt-3 flex items-start gap-2 text-[15px] leading-6 sm:flex-wrap sm:items-center sm:text-[18px] sm:leading-[28px]">
+                  <RiCalendarLine className="mt-0.5 size-5 shrink-0 text-primary sm:mt-0" aria-hidden="true" />
                   <span>
                     Project:
                     {' '}
@@ -269,7 +269,7 @@ export default function DiagnosisPage() {
                     router.push(`/result?rid=${encodeURIComponent(rid)}`)
                   }}
                   disabled={!hasRid}
-                  className="h-[38px] gap-2 px-4 border-border/60 bg-background shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)] disabled:opacity-60"
+                  className="h-[38px] w-full gap-2 px-4 border-border/60 bg-background shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)] disabled:opacity-60 sm:w-auto"
                 >
                   <RiArrowLeftSLine className="size-5" />
                   Back to result
@@ -292,12 +292,12 @@ export default function DiagnosisPage() {
         </Reveal>
 
         <Reveal variant="fadeInUp" delay={0.08}>
-          <div className="mt-10 flex items-center justify-between">
+          <div className="mt-8 flex flex-col gap-3 sm:mt-10 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-foreground text-[18px] leading-[28px] font-semibold">
               Analysis Details
             </h2>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 self-start sm:self-auto">
               <p className="text-muted-foreground text-[12px] leading-4">
                 Filter view:
               </p>
@@ -308,7 +308,7 @@ export default function DiagnosisPage() {
                     setFilterView(value)
                 }}
               >
-                <SelectTrigger size="sm" className="w-[140px]">
+                <SelectTrigger size="sm" className="w-[160px] sm:w-[140px]">
                   <SelectValue placeholder="All Issues" />
                 </SelectTrigger>
                 <SelectContent>

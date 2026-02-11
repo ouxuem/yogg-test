@@ -2,7 +2,7 @@
 
 import type { HealthLevel } from './result-sections'
 import type { PreviewScore } from '@/lib/analysis/analysis-result'
-import { RiArrowRightSLine, RiBookOpenLine, RiCoinsLine, RiDownloadLine, RiNodeTree, RiShareLine } from '@remixicon/react'
+import { RiArrowRightSLine, RiBookOpenLine, RiCoinsLine, RiDownloadLine, RiNodeTree } from '@remixicon/react'
 import { motion, useReducedMotion } from 'motion/react'
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
@@ -221,6 +221,27 @@ export default function ResultPage() {
             <span className="text-foreground text-base font-semibold tracking-tight">ScriptAI</span>
           </div>
           <div className="flex items-center gap-3">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => { void handleExportPdf() }}
+              disabled={isExportingPdf}
+              className="h-[38px] gap-2 px-4 border-border/60 bg-background shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)]"
+            >
+              {isExportingPdf
+                ? (
+                    <>
+                      <Spinner className="size-4" />
+                      Exporting PDF...
+                    </>
+                  )
+                : (
+                    <>
+                      <RiDownloadLine className="size-5" />
+                      Export PDF
+                    </>
+                  )}
+            </Button>
             <Button size="sm" onClick={onNewUpload}>
               New Upload
             </Button>
@@ -271,38 +292,6 @@ export default function ResultPage() {
                   </div>
                 </div>
 
-                <div className="mt-3 flex items-center justify-end gap-3">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => { void handleExportPdf() }}
-                    disabled={isExportingPdf}
-                    className="h-[38px] gap-2 px-4 text-muted-foreground border-border/60 bg-background shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)] disabled:opacity-100 hover:bg-background hover:text-muted-foreground disabled:hover:bg-background disabled:hover:text-muted-foreground"
-                  >
-                    {isExportingPdf
-                      ? (
-                          <>
-                            <Spinner className="size-4" />
-                            Exporting PDF...
-                          </>
-                        )
-                      : (
-                          <>
-                            <RiDownloadLine className="size-5" />
-                            Export PDF
-                          </>
-                        )}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled
-                    className="h-[38px] gap-2 px-4 text-muted-foreground border-border/60 bg-background shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)] disabled:opacity-100 hover:bg-background hover:text-muted-foreground disabled:hover:bg-background disabled:hover:text-muted-foreground"
-                  >
-                    <RiShareLine className="size-5" />
-                    Share
-                  </Button>
-                </div>
                 {pdfError != null && (
                   <p className="mt-2 text-right text-xs text-red-600">
                     {pdfError}
@@ -331,6 +320,7 @@ export default function ResultPage() {
               <Card className="shadow-xs py-0" interactive>
                 <CardContent className="flex h-full flex-col justify-center gap-10 pb-10 pt-10">
                   <MetricRow
+                    animationDelay={0.14}
                     icon={RiCoinsLine}
                     accentClassName="text-[var(--chart-1)]"
                     indicatorClassName="bg-[var(--chart-1)]"
@@ -339,6 +329,7 @@ export default function ResultPage() {
                     description={presentation?.dimensionNarratives.monetization ?? ''}
                   />
                   <MetricRow
+                    animationDelay={0.2}
                     icon={RiBookOpenLine}
                     accentClassName="text-[var(--chart-4)]"
                     indicatorClassName="bg-[var(--chart-4)]"
@@ -347,6 +338,7 @@ export default function ResultPage() {
                     description={presentation?.dimensionNarratives.story ?? ''}
                   />
                   <MetricRow
+                    animationDelay={0.26}
                     icon={RiNodeTree}
                     accentClassName="text-[var(--chart-5)]"
                     indicatorClassName="bg-[var(--chart-5)]"
@@ -360,7 +352,7 @@ export default function ResultPage() {
           </Reveal>
 
           {presentation != null && (
-            <Reveal variant="fadeInUp" delay={0.08}>
+            <Reveal variant="fadeInUp" delay={0.08} className="pb-5">
               <ResultCharts
                 emotion={presentation.charts.emotion}
                 conflict={presentation.charts.conflict}
@@ -369,15 +361,15 @@ export default function ResultPage() {
           )}
 
           <Reveal variant="fadeInUp" delay={0.12}>
-            <Card className="bg-muted/20 shadow-xs mt-3 py-0 ring-border/60" interactive>
-              <div className="bg-background/50 border-border/60 flex h-[58px] items-center justify-between border-b px-6">
+            <Card className="bg-muted/20 shadow-xs mt-6 py-0 ring-border/60" interactive>
+              <div className="bg-background/50 border-border/60 flex flex-col gap-2 border-b px-4 py-3 sm:h-[58px] sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-0">
                 <p className="text-foreground text-[14px] font-semibold tracking-[0.35px] uppercase">
                   Individual episode breakdown
                 </p>
 
                 <button
                   type="button"
-                  className="bg-background border-border/60 flex h-[25px] w-[151px] items-center justify-between rounded-[4px] border px-[9px] text-[10px] text-muted-foreground shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)] hover:bg-muted/30"
+                  className="bg-background border-border/60 flex h-[28px] w-[170px] items-center justify-between rounded-[6px] border px-[10px] text-[11px] text-muted-foreground shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_8%,transparent)] hover:bg-muted/30 sm:h-[25px] sm:w-[151px] sm:rounded-[4px] sm:px-[9px] sm:text-[10px]"
                   onClick={() => {
                     if (!hasRid || rid == null)
                       return
@@ -395,40 +387,74 @@ export default function ResultPage() {
                 </button>
               </div>
 
-              <div className="px-6 pb-4 pt-4">
-                <div className="border-border/60 text-muted-foreground grid h-[24px] grid-cols-[56px_112px_170px_1fr] items-center border-b px-2 text-[10px] font-semibold tracking-[0.5px] uppercase">
-                  <div>EP #</div>
-                  <div>Health</div>
-                  <div>Primary hook type</div>
-                  <div>AI highlight</div>
+              <div className="px-4 pb-4 pt-4 sm:px-6">
+                <div className="hidden md:block">
+                  <div className="border-border/60 text-muted-foreground grid h-[24px] grid-cols-[56px_112px_170px_1fr] items-center border-b px-2 text-[10px] font-semibold tracking-[0.5px] uppercase">
+                    <div>EP #</div>
+                    <div>Health</div>
+                    <div>Primary hook type</div>
+                    <div>AI highlight</div>
+                  </div>
+
+                  <div className="space-y-1 pt-2">
+                    {breakdownRows.length > 0
+                      ? breakdownRows.map((row) => {
+                          const health: HealthLevel = row.health === 'GOOD' ? 'good' : row.health === 'PEAK' ? 'peak' : 'fair'
+                          return (
+                            <motion.div
+                              key={row.episode}
+                              className="grid min-h-[43px] grid-cols-[56px_112px_170px_1fr] items-center px-2 py-2"
+                              initial={{ opacity: 0, y: isReduced ? 0 : 6 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ type: 'spring', stiffness: 320, damping: 32, delay: row.episode * 0.01 }}
+                            >
+                              <div className="text-foreground text-[14px] font-semibold tabular-nums">
+                                {String(row.episode).padStart(2, '0')}
+                              </div>
+                              <div>
+                                <HealthBadge level={health} />
+                              </div>
+                              <div className="text-foreground text-[12px] font-medium leading-4">
+                                {row.primaryHookType}
+                              </div>
+                              <div className="text-muted-foreground text-[12px] leading-[19.5px]">
+                                <p className="overflow-hidden text-ellipsis line-clamp-2 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
+                                  {row.aiHighlight}
+                                </p>
+                              </div>
+                            </motion.div>
+                          )
+                        })
+                      : null}
+                  </div>
                 </div>
 
-                <div className="space-y-1 pt-2">
+                <div className="space-y-2 md:hidden">
                   {breakdownRows.length > 0
                     ? breakdownRows.map((row) => {
                         const health: HealthLevel = row.health === 'GOOD' ? 'good' : row.health === 'PEAK' ? 'peak' : 'fair'
                         return (
                           <motion.div
                             key={row.episode}
-                            className="grid min-h-[43px] grid-cols-[56px_112px_170px_1fr] items-center px-2 py-2"
+                            className="border-border/60 bg-background/50 rounded-lg border px-3 py-3"
                             initial={{ opacity: 0, y: isReduced ? 0 : 6 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ type: 'spring', stiffness: 320, damping: 32, delay: row.episode * 0.01 }}
                           >
-                            <div className="text-foreground text-[14px] font-semibold tabular-nums">
-                              {String(row.episode).padStart(2, '0')}
-                            </div>
-                            <div>
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <p className="text-foreground text-sm font-semibold tabular-nums">
+                                EP
+                                {' '}
+                                {String(row.episode).padStart(2, '0')}
+                              </p>
                               <HealthBadge level={health} />
                             </div>
-                            <div className="text-foreground text-[12px] font-medium leading-4">
+                            <p className="text-foreground text-[13px] font-medium leading-5">
                               {row.primaryHookType}
-                            </div>
-                            <div className="text-muted-foreground text-[12px] leading-[19.5px]">
-                              <p className="overflow-hidden text-ellipsis line-clamp-2 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
-                                {row.aiHighlight}
-                              </p>
-                            </div>
+                            </p>
+                            <p className="text-muted-foreground mt-1.5 text-[12px] leading-[18px] overflow-hidden text-ellipsis line-clamp-2 [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical]">
+                              {row.aiHighlight}
+                            </p>
                           </motion.div>
                         )
                       })

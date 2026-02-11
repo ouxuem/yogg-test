@@ -12,7 +12,7 @@ export function LegendItem({ label, state }: { label: string, state: Exclude<Epi
   return (
     <div className="flex items-center gap-2">
       <span className="size-3 rounded-[3px] border" style={style} aria-hidden="true" />
-      <span className="whitespace-nowrap">{label}</span>
+      <span className="text-xs leading-4 sm:text-[12px] sm:leading-4">{label}</span>
     </div>
   )
 }
@@ -43,20 +43,20 @@ export function EpisodeMatrixCard({
 }) {
   return (
     <Card className="bg-muted/20 shadow-xs mt-8 py-0 ring-border/60" interactive>
-      <div className="flex items-center justify-between px-8 pt-8">
+      <div className="flex flex-col gap-3 px-4 pt-6 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8 lg:pt-8">
         <p className="text-foreground text-[16px] leading-6 font-semibold tracking-[-0.2px]">
           Episode Matrix
         </p>
 
-        <div className="flex items-center gap-6 text-[12px] leading-4 text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-muted-foreground">
           <LegendItem label="Optimal" state="optimal" />
           <LegendItem label="Issue Detected" state="issue" />
           <LegendItem label="Neutral/Healthy" state="neutral" />
         </div>
       </div>
 
-      <div className="px-8 pb-8 pt-6">
-        <div className="grid grid-cols-12 gap-3">
+      <div className="px-4 pb-6 pt-4 sm:px-6 lg:px-8 lg:pb-8 lg:pt-6">
+        <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 sm:gap-3 lg:grid-cols-12">
           {matrix.map((item) => {
             const episode = item.episode
             const isSelected = episode != null && episode === selectedEpisode
@@ -83,7 +83,7 @@ export function EpisodeMatrixCard({
                   setSelectedEpisode(episode)
                 }}
                 className={[
-                  'h-[83.5px] w-[83.5px] rounded-[10px] border text-[12px] font-semibold tabular-nums shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_6%,transparent)] transition',
+                  'w-full aspect-square rounded-[10px] border text-[12px] font-semibold tabular-nums shadow-[0_1px_2px_0_color-mix(in_oklab,var(--foreground)_6%,transparent)] transition lg:h-[83.5px] lg:w-[83.5px]',
                   isEmpty && 'disabled:cursor-not-allowed disabled:opacity-60',
                   selectionClass,
                 ].join(' ')}

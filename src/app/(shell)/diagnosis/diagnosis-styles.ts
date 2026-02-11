@@ -5,7 +5,7 @@ export function stateStyles(state: EpisodeState) {
     const accent = 'var(--chart-4)'
     return {
       backgroundColor: `color-mix(in oklab, ${accent} 12%, var(--background))`,
-      borderColor: `color-mix(in oklab, ${accent} 35%, var(--border))`,
+      borderColor: 'transparent',
       color: `color-mix(in oklab, ${accent} 85%, var(--foreground))`,
     }
   }

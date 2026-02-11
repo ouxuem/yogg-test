@@ -143,7 +143,11 @@ const ANALYSIS_SCORE_RESULT_RESPONSE_SCHEMA = {
             required: ['episode', 'health', 'primaryHookType', 'aiHighlight'],
             properties: {
               episode: { type: 'number', minimum: 1, description: 'Episode index in 1..N.' },
-              health: { type: 'string', enum: [...EPISODE_HEALTH_VALUES] },
+              health: {
+                type: 'string',
+                enum: [...EPISODE_HEALTH_VALUES],
+                description: 'Audience engagement heat for this episode, not structural quality. Values: GOOD, FAIR, PEAK.',
+              },
               primaryHookType: { type: 'string', minLength: 1, maxLength: 48 },
               aiHighlight: { type: 'string', minLength: 8, maxLength: 240 },
             },
@@ -163,13 +167,17 @@ const ANALYSIS_SCORE_RESULT_RESPONSE_SCHEMA = {
                 required: ['episode', 'state'],
                 properties: {
                   episode: { type: 'number', minimum: 1, description: 'Episode index in 1..N.' },
-                  state: { type: 'string', enum: [...EPISODE_STATE_VALUES] },
+                  state: {
+                    type: 'string',
+                    enum: [...EPISODE_STATE_VALUES],
+                    description: 'Structural/pacing health state for this episode, independent from episodeRows.health. Values: optimal, issue, neutral.',
+                  },
                 },
               },
             },
             details: {
               type: 'array',
-              description: 'Actionable details for issue or neutral episodes. episode must stay within 1..N.',
+              description: 'Actionable diagnosis details for issue or neutral episodes. Must be semantically consistent with the same episode\'s episodeRows.primaryHookType and episodeRows.aiHighlight.',
               items: {
                 type: 'object',
                 additionalProperties: false,

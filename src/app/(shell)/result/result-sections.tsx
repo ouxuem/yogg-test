@@ -2,7 +2,8 @@
 
 import type { RemixiconComponentType } from '@remixicon/react'
 import { motion, useReducedMotion } from 'motion/react'
-import { Progress } from '@/components/ui/progress'
+import { useEffect, useState } from 'react'
+import { cn } from '@/lib/utils'
 
 export type HealthLevel = 'good' | 'fair' | 'peak'
 
@@ -31,6 +32,7 @@ export function HealthBadge({ level }: { level: HealthLevel }) {
 }
 
 export function MetricRow({
+  animationDelay = 0.12,
   accentClassName,
   description,
   icon: Icon,
@@ -38,6 +40,7 @@ export function MetricRow({
   label,
   value,
 }: {
+  animationDelay?: number
   accentClassName: string
   description: string
   icon: RemixiconComponentType
@@ -45,6 +48,10 @@ export function MetricRow({
   label: string
   value: number
 }) {
+  const isReduced = useReducedMotion() === true
+  const isReady = useMountTriggeredMotion(!isReduced)
+  const normalizedValue = clampScore(value)
+
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-2">
@@ -57,12 +64,27 @@ export function MetricRow({
       </div>
 
       <div className="mt-2">
-        <Progress
-          value={value}
-          className="gap-0"
-          trackClassName="bg-muted h-1.5"
-          indicatorClassName={indicatorClassName}
-        />
+        <div
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={normalizedValue}
+          className="bg-muted h-1.5 w-full overflow-hidden rounded-full"
+        >
+          <motion.div
+            className={cn('h-full origin-left', indicatorClassName)}
+            initial={false}
+            animate={{ scaleX: isReady ? normalizedValue / 100 : 0 }}
+            transition={isReduced
+              ? { duration: 0.01 }
+              : {
+                  type: 'spring',
+                  stiffness: 260,
+                  damping: 30,
+                  delay: animationDelay,
+                }}
+          />
+        </div>
       </div>
 
       <div className="border-border mt-3 border-l-2 pl-6">
@@ -84,15 +106,44 @@ function clampScore(value: number) {
   return Math.round(value)
 }
 
+function useMountTriggeredMotion(enabled: boolean) {
+  const [isReady, setIsReady] = useState(!enabled)
+
+  useEffect(() => {
+    if (!enabled)
+      return
+
+    const frameId = window.requestAnimationFrame(() => {
+      setIsReady(true)
+    })
+
+    return () => {
+      window.cancelAnimationFrame(frameId)
+    }
+  }, [enabled])
+
+  return isReady
+}
+
 export function GradeRing({ grade, score100 }: { grade: string, score100: number }) {
   const isReduced = useReducedMotion() === true
+  const isReady = useMountTriggeredMotion(!isReduced)
   const normalizedScore = clampScore(score100)
   const radius = 46
   const circumference = 2 * Math.PI * radius
   const dashOffset = circumference * (1 - normalizedScore / 100)
 
   return (
-    <div className="relative grid size-48 place-items-center">
+    <motion.div
+      className="relative grid size-48 place-items-center"
+      initial={false}
+      animate={isReady
+        ? { opacity: 1, scale: 1, y: 0 }
+        : { opacity: isReduced ? 1 : 0, scale: isReduced ? 1 : 0.92, y: isReduced ? 0 : 6 }}
+      transition={isReduced
+        ? { duration: 0.01 }
+        : { type: 'spring', stiffness: 240, damping: 32, delay: 0.1 }}
+    >
       <svg className="size-48" viewBox="0 0 120 120" aria-hidden="true">
         <circle
           cx="60"
@@ -111,8 +162,11 @@ export function GradeRing({ grade, score100 }: { grade: string, score100: number
           strokeWidth="10"
           strokeDasharray={circumference}
           strokeDashoffset={circumference}
-          animate={{ strokeDashoffset: dashOffset }}
-          transition={isReduced ? { duration: 0.01 } : { type: 'spring', stiffness: 220, damping: 30 }}
+          initial={false}
+          animate={{ strokeDashoffset: isReady ? dashOffset : circumference }}
+          transition={isReduced
+            ? { duration: 0.01 }
+            : { type: 'spring', stiffness: 220, damping: 30, delay: 0.18 }}
           strokeLinecap="round"
           transform="rotate(-90 60 60)"
         />
@@ -127,6 +181,6 @@ export function GradeRing({ grade, score100 }: { grade: string, score100: number
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   )
 }

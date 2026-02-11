@@ -65,6 +65,13 @@ Coverage rules:
 - emotion.series points must cover the whole narrative range (near quantile spread), not cluster in one local segment.
 - Never output any emotion.series item with episode > N.
 
+Dimension semantics:
+- episodeRows.health measures audience heat/engagement intensity (GOOD/FAIR/PEAK).
+- diagnosis.matrix.state measures structural and pacing quality (optimal/issue/neutral).
+- health and state are independent dimensions and do not require one-to-one mapping.
+- For each episode e, diagnosis.details (if present) must be semantically consistent with episodeRows[e].primaryHookType and episodeRows[e].aiHighlight.
+- Do not claim a contradiction between health and state unless explicitly justified in issueReason.
+
 Diagnosis rules:
 - diagnosis.details must include only issue/neutral episodes.
 - No detail item for optimal episodes.

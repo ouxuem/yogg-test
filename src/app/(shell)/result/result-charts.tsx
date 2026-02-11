@@ -1,6 +1,7 @@
 'use client'
 
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, ReferenceDot, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useReducedMotion } from 'motion/react'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ReferenceDot, Tooltip, XAxis, YAxis } from 'recharts'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { ChartContainer } from '@/components/ui/chart'
@@ -105,6 +106,7 @@ function pickSparseEmotionTicks(data: EmotionChartDatum[]): string[] {
 }
 
 export default function ResultCharts({ emotion, conflict }: ResultChartsProps) {
+  const isReduced = useReducedMotion() === true
   const emotionData: EmotionChartDatum[] = emotion.series.map(item => ({
     episode: item.episode,
     epLabel: `Ep ${String(item.episode).padStart(2, '0')}`,
@@ -176,42 +178,44 @@ export default function ResultCharts({ emotion, conflict }: ResultChartsProps) {
             config={{ emotion: { label: 'Emotion', color: 'var(--chart-4)' } }}
             className="aspect-auto h-[220px] w-full"
           >
-            <ResponsiveContainer>
-              <AreaChart data={emotionData} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="epLabel"
-                  ticks={emotionTicks}
-                  tickLine={false}
-                  axisLine={false}
-                  interval={0}
-                  padding={{ left: 12, right: 12 }}
-                  tickMargin={8}
-                  minTickGap={24}
-                />
-                <YAxis hide domain={[0, 100]} />
-                <Tooltip cursor={{ stroke: 'var(--border)' }} content={renderEmotionTooltip} />
-                <Area
-                  type="monotone"
-                  dataKey="value"
+            <AreaChart data={emotionData} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
+              <CartesianGrid vertical={false} strokeDasharray="3 3" />
+              <XAxis
+                dataKey="epLabel"
+                ticks={emotionTicks}
+                tickLine={false}
+                axisLine={false}
+                interval={0}
+                padding={{ left: 12, right: 12 }}
+                tickMargin={8}
+                minTickGap={24}
+              />
+              <YAxis hide domain={[0, 100]} />
+              <Tooltip cursor={{ stroke: 'var(--border)' }} content={renderEmotionTooltip} />
+              <Area
+                type="monotone"
+                dataKey="value"
+                stroke="var(--color-emotion)"
+                fill="color-mix(in oklab, var(--color-emotion) 22%, transparent)"
+                strokeWidth={2}
+                isAnimationActive={!isReduced}
+                animationBegin={140}
+                animationDuration={1000}
+                animationEasing="ease-out"
+              />
+              {emotion.anchors.map(anchor => (
+                <ReferenceDot
+                  key={`${anchor.slot}-${anchor.episode}`}
+                  x={`Ep ${String(anchor.episode).padStart(2, '0')}`}
+                  y={anchor.value}
+                  r={6}
+                  fill="var(--background)"
                   stroke="var(--color-emotion)"
-                  fill="color-mix(in oklab, var(--color-emotion) 22%, transparent)"
-                  strokeWidth={2}
+                  strokeWidth={3}
+                  ifOverflow="visible"
                 />
-                {emotion.anchors.map(anchor => (
-                  <ReferenceDot
-                    key={`${anchor.slot}-${anchor.episode}`}
-                    x={`Ep ${String(anchor.episode).padStart(2, '0')}`}
-                    y={anchor.value}
-                    r={6}
-                    fill="var(--background)"
-                    stroke="var(--color-emotion)"
-                    strokeWidth={3}
-                    ifOverflow="visible"
-                  />
-                ))}
-              </AreaChart>
-            </ResponsiveContainer>
+              ))}
+            </AreaChart>
           </ChartContainer>
           <p className="text-muted-foreground mt-3 text-xs leading-5">{emotion.caption}</p>
         </CardContent>
@@ -246,19 +250,35 @@ export default function ResultCharts({ emotion, conflict }: ResultChartsProps) {
             }}
             className="aspect-auto h-[220px] w-full"
           >
-            <ResponsiveContainer>
-              <BarChart data={conflictData} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" />
-                <XAxis dataKey="phase" tickLine={false} axisLine={false} interval={0} />
-                <YAxis hide />
-                <Tooltip
-                  cursor={{ fill: 'color-mix(in oklab, var(--muted) 60%, transparent)' }}
-                  content={renderConflictTooltip}
-                />
-                <Bar dataKey="ext" stackId="conflict" fill="var(--color-ext)" radius={[0, 0, 0, 0]} />
-                <Bar dataKey="int" stackId="conflict" fill="var(--color-int)" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <BarChart data={conflictData} margin={{ left: 8, right: 8, top: 8, bottom: 8 }}>
+              <CartesianGrid vertical={false} strokeDasharray="3 3" />
+              <XAxis dataKey="phase" tickLine={false} axisLine={false} interval={0} />
+              <YAxis hide />
+              <Tooltip
+                cursor={{ fill: 'color-mix(in oklab, var(--muted) 60%, transparent)' }}
+                content={renderConflictTooltip}
+              />
+              <Bar
+                dataKey="ext"
+                stackId="conflict"
+                fill="var(--color-ext)"
+                radius={[0, 0, 0, 0]}
+                isAnimationActive={!isReduced}
+                animationBegin={200}
+                animationDuration={900}
+                animationEasing="ease-out"
+              />
+              <Bar
+                dataKey="int"
+                stackId="conflict"
+                fill="var(--color-int)"
+                radius={[6, 6, 0, 0]}
+                isAnimationActive={!isReduced}
+                animationBegin={280}
+                animationDuration={900}
+                animationEasing="ease-out"
+              />
+            </BarChart>
           </ChartContainer>
           <p className="text-muted-foreground mt-3 text-xs leading-5">{conflict.caption}</p>
         </CardContent>
